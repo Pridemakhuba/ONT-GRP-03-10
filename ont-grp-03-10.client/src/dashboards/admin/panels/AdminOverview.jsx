@@ -1,13 +1,13 @@
 const stats = [
-  { label: "Active Candidates",      value: "148", delta: "+12 this term",       color: "#0066CC" },
-  { label: "Pending Proposals",      value: "23",  delta: "8 awaiting review",   color: "#F59E0B" },
-  { label: "Ethics Applications",    value: "17",  delta: "5 approved this month", color: "#10B981" },
-  { label: "Final Submissions",      value: "9",   delta: "Due within 30 days",  color: "#EF4444" },
+  { label: "Active Candidates",      value: "148", delta: "+12 this term",        color: "#0066CC" },
+  { label: "Pending Proposals",      value: "23",  delta: "8 awaiting review",    color: "#F59E0B" },
+  { label: "Overdue Milestones",     value: "6",   delta: "Needs follow-up",      color: "#EF4444" },
+  { label: "Final Submissions",      value: "9",   delta: "Due within 30 days",   color: "#10B981" },
 ];
 
 const activity = [
   { student: "M. Dlamini",          action: "Proposal approved by evaluator",        time: "2h ago",      status: "success" },
-  { student: "K. Mthembu",          action: "Ethics application submitted",          time: "4h ago",      status: "pending" },
+  { student: "K. Mthembu",          action: "Proposal submitted for review",         time: "4h ago",      status: "pending" },
   { student: "L. Botha",            action: "6-month milestone reminder sent",       time: "Yesterday",   status: "info" },
   { student: "N. van der Berg",     action: "Final thesis uploaded",                 time: "Yesterday",   status: "success" },
   { student: "P. Nkosi",            action: "New PhD candidate registered",          time: "2 days ago",  status: "info" },

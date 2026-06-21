@@ -26,9 +26,11 @@ export const api = {
   createProposal: (data)       => request("/proposals",      { method: "POST", body: JSON.stringify(data) }),
   updateProposalStatus: (id, data) => request(`/proposals/${id}/status`, { method: "PATCH", body: JSON.stringify(data) }),
 
-  // Ethics
-  getEthics:      ()           => request("/ethics"),
-  updateOutcome:  (id, outcome)=> request(`/ethics/${id}/outcome`, { method: "PATCH", body: JSON.stringify(outcome) }),
+  // Evaluator / Review Queue
+  // evaluatorId is the logged-in user's evaluator/supervisor record.
+  // Backend excludes proposals where studentId belongs to this evaluator's own supervisees.
+  getReviewQueue: (evaluatorId) => request(`/proposals/review-queue?evaluatorId=${evaluatorId}`),
+  submitReview:   (proposalId, data) => request(`/proposals/${proposalId}/review`, { method: "POST", body: JSON.stringify(data) }),
 
   // Milestones
   getMilestones:  ()           => request("/milestones"),

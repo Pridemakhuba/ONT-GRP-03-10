@@ -24,7 +24,7 @@ export default function MyProposal() {
         <div className="feedback-box">
           <span className="detail-label">Evaluator Feedback</span>
           <p>Well-structured proposal with a clear methodology. The literature review is comprehensive.
-            Proceed to ethics application. Minor revision to the data collection timeline suggested for the final report.</p>
+            Proceed to fieldwork. Minor revision to the data collection timeline suggested for the final report.</p>
         </div>
       </div>
 

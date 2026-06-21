@@ -1,8 +1,7 @@
 const journey = [
   { step: "Registration", status: "done" },
   { step: "Proposal", status: "done" },
-  { step: "Ethics Approval", status: "active" },
-  { step: "Fieldwork / Data Collection", status: "pending" },
+  { step: "Fieldwork / Data Collection", status: "active" },
   { step: "Final Submission", status: "pending" },
 ];
 
@@ -42,16 +41,16 @@ export default function MyOverview({ user }) {
           <span className="stat-card-delta">Decided 12 May 2025</span>
         </div>
         <div className="stat-card">
-          <div className="stat-card-accent" style={{ background: "#F59E0B" }} />
-          <span className="stat-card-value" style={{ color: "#F59E0B" }}>Pending</span>
-          <span className="stat-card-label">Ethics Application</span>
-          <span className="stat-card-delta">Submitted 10 May 2025</span>
-        </div>
-        <div className="stat-card">
           <div className="stat-card-accent" style={{ background: "#EF4444" }} />
           <span className="stat-card-value" style={{ color: "#EF4444" }}>12 days</span>
           <span className="stat-card-label">Next Deadline</span>
           <span className="stat-card-delta">Annual Progress Report</span>
+        </div>
+        <div className="stat-card">
+          <div className="stat-card-accent" style={{ background: "#0066CC" }} />
+          <span className="stat-card-value" style={{ color: "#0066CC" }}>Year 2</span>
+          <span className="stat-card-label">Current Standing</span>
+          <span className="stat-card-delta">On track</span>
         </div>
       </div>
 
@@ -73,14 +72,6 @@ export default function MyOverview({ user }) {
               <span className="activity-action">Your proposal "Machine Learning in Protein Folding" was approved</span>
             </div>
             <span className="activity-time">2 days ago</span>
-          </div>
-          <div className="activity-row">
-            <div className="activity-dot" style={{ background: "#F59E0B" }} />
-            <div className="activity-body">
-              <span className="activity-student">Ethics</span>
-              <span className="activity-action">Your ethics application was received by Science Ethics committee</span>
-            </div>
-            <span className="activity-time">6 days ago</span>
           </div>
         </div>
       </div>

@@ -1,7 +1,6 @@
 const milestones = [
   { name: "Registration Confirmed",        date: "15 Feb 2024", status: "done" },
   { name: "Proposal Submitted & Approved", date: "12 May 2025", status: "done" },
-  { name: "Ethics Clearance",              date: "22 May 2025", status: "done" },
   { name: "Annual Progress Report",        date: "30 Jun 2025", status: "due-soon", daysLeft: 12 },
   { name: "Fieldwork Completion",          date: "31 Dec 2025", status: "upcoming" },
   { name: "Draft Thesis Submission",       date: "30 Jun 2026", status: "upcoming" },

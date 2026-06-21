@@ -3,7 +3,6 @@ import { Icons } from "../shared/icons";
 import AdminOverview from "./panels/AdminOverview";
 import AllStudents from "./panels/AllStudents";
 import AllProposals from "./panels/AllProposals";
-import AllEthics from "./panels/AllEthics";
 import AllTimelines from "./panels/AllTimelines";
 import AllSubmissions from "./panels/AllSubmissions";
 import Reports from "./panels/Reports";
@@ -12,7 +11,6 @@ const navItems = [
   { key: "overview",     label: "Overview",     icon: Icons.overview },
   { key: "registration", label: "Registration", icon: Icons.registration },
   { key: "proposals",    label: "Proposals",    icon: Icons.proposals },
-  { key: "ethics",       label: "Ethics",       icon: Icons.ethics },
   { key: "timelines",    label: "Timelines",    icon: Icons.timelines },
   { key: "submissions",  label: "Submissions",  icon: Icons.submissions },
   { key: "reports",      label: "Reports",      icon: Icons.reports },
@@ -22,7 +20,6 @@ const moduleLabels = {
   overview:     { title: "Overview",     desc: "System-wide snapshot and recent activity" },
   registration: { title: "Registration", desc: "Student enrollment and profile management" },
   proposals:    { title: "Proposals",    desc: "Research proposals and evaluation workflow" },
-  ethics:       { title: "Ethics",       desc: "Ethics committee applications and approvals" },
   timelines:    { title: "Timelines",    desc: "Milestones, deadlines, and progress tracking" },
   submissions:  { title: "Submissions",  desc: "Final thesis and examination submissions" },
   reports:      { title: "Reports",      desc: "Generate status reports across the system" },
@@ -32,7 +29,6 @@ const panels = {
   overview: AdminOverview,
   registration: AllStudents,
   proposals: AllProposals,
-  ethics: AllEthics,
   timelines: AllTimelines,
   submissions: AllSubmissions,
   reports: Reports,

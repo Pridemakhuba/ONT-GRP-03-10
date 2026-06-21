@@ -1,6 +1,5 @@
 const reportTypes = [
-  { name: "Proposal Outcomes Report",  desc: "Approval rates, turnaround times, evaluator workload",   icon: "📄" },
-  { name: "Ethics Applications Report", desc: "Committee throughput, outcomes by review type",          icon: "🛡️" },
+  { name: "Proposal Outcomes Report",   desc: "Approval rates, turnaround times, evaluator workload",   icon: "📄" },
   { name: "Student Performance Report", desc: "Progress against milestones, at-risk candidates",        icon: "📊" },
   { name: "Faculty Summary Report",     desc: "Candidate counts, completion rates per faculty",          icon: "🏛️" },
 ];
@@ -11,7 +10,7 @@ export default function Reports() {
       <div className="panel-header-row">
         <div>
           <h3 className="panel-section-heading">Integrated Reporting Tool</h3>
-          <p className="panel-section-sub">Generate status reports on proposal outcomes, ethics applications, and student performance.</p>
+          <p className="panel-section-sub">Generate status reports on proposal outcomes and student performance.</p>
         </div>
       </div>
 
@@ -34,7 +33,7 @@ export default function Reports() {
             <tbody>
               <tr><td className="bold">Q2 2025 Faculty Summary</td><td>15 Jun 2025</td><td>S. Petersen</td><td><span className="type-badge">PDF</span></td><td><a href="#" className="table-link">Download</a></td></tr>
               <tr><td className="bold">Proposal Outcomes — May</td><td>02 Jun 2025</td><td>S. Petersen</td><td><span className="type-badge">XLSX</span></td><td><a href="#" className="table-link">Download</a></td></tr>
-              <tr><td className="bold">Ethics Throughput — Q1</td><td>10 Apr 2025</td><td>SPGS Office</td><td><span className="type-badge">PDF</span></td><td><a href="#" className="table-link">Download</a></td></tr>
+              <tr><td className="bold">Student Performance — Q1</td><td>10 Apr 2025</td><td>SPGS Office</td><td><span className="type-badge">PDF</span></td><td><a href="#" className="table-link">Download</a></td></tr>
             </tbody>
           </table>
         </div>

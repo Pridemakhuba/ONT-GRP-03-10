@@ -15,11 +15,6 @@ export const Icons = {
       <rect x="4" y="4" width="12" height="12" rx="1"/><path d="M7 8h6M7 11h4"/>
     </svg>
   ),
-  ethics: (
-    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <path d="M10 2l1.8 5.5H17l-4.6 3.4 1.8 5.5L10 13l-4.2 3.4 1.8-5.5L3 7.5h5.2z"/>
-    </svg>
-  ),
   timelines: (
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6">
       <circle cx="10" cy="10" r="8"/><path d="M10 5v5l3 3"/>

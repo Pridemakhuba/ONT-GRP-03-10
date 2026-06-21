@@ -43,12 +43,12 @@ export default function LoginPage() {
             One system.<br />Every milestone.
           </h1>
           <p className="login-subtext">
-            Track registration, proposals, ethics approvals, and final
+            Track registration, proposals, evaluations, and final
             submissions—across every faculty, every candidate.
           </p>
           <div className="stat-row">
             <div className="stat-item">
-              <span className="stat-number">5</span>
+              <span className="stat-number">4</span>
               <span className="stat-label">Modules</span>
             </div>
             <div className="stat-divider" />
@@ -64,7 +64,7 @@ export default function LoginPage() {
           </div>
         </div>
         <div className="login-modules-preview">
-          {["Registration", "Proposals", "Ethics", "Timelines", "Submissions"].map((mod, i) => (
+          {["Registration", "Proposals", "Timelines", "Submissions"].map((mod, i) => (
             <div key={mod} className="module-pill" style={{ animationDelay: `${i * 0.1}s` }}>
               <span className="module-index">0{i + 1}</span>
               {mod}

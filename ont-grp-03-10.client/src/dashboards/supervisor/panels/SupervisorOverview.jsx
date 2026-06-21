@@ -35,6 +35,20 @@ export default function SupervisorOverview({ user }) {
           <span className="stat-card-label">Reports Due</span>
           <span className="stat-card-delta">This month</span>
         </div>
+        <div className="stat-card">
+          <div className="stat-card-accent" style={{ background: "#0D9488" }} />
+          <span className="stat-card-value" style={{ color: "#0D9488" }}>2</span>
+          <span className="stat-card-label">Proposals to Evaluate</span>
+          <span className="stat-card-delta">For other supervisors' students</span>
+        </div>
+      </div>
+
+      <div className="info-callout">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <circle cx="8" cy="8" r="7" stroke="#0D9488" strokeWidth="1.3"/>
+          <rect x="7.4" y="7" width="1.2" height="4.5" fill="#0D9488"/><rect x="7.4" y="4" width="1.2" height="1.5" fill="#0D9488"/>
+        </svg>
+        As a supervisor you may also be assigned to evaluate proposals — always for candidates supervised by a colleague, never your own.
       </div>
 
       <div className="panel-section">
