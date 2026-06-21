@@ -1,51 +1,55 @@
-import { useEffect, useState } from 'react';
-import './App.css';
+import { Routes, Route, Navigate } from "react-router-dom";
+import { useAuth } from "./context/AuthContext";
+import { useMsal } from "@azure/msal-react";
+import { InteractionStatus } from "@azure/msal-browser";
+import { DEV_MODE, ROLES } from "./authConfig";
+import LoginPage from "./pages/LoginPage";
+import StudentDashboard from "./dashboards/student/StudentDashboard";
+import AdminDashboard from "./dashboards/admin/AdminDashboard";
+import SupervisorDashboard from "./dashboards/supervisor/SupervisorDashboard";
+import EvaluatorDashboard from "./dashboards/evaluator/EvaluatorDashboard";
 
-function App() {
-    const [forecasts, setForecasts] = useState();
-
-    useEffect(() => {
-        populateWeatherData();
-    }, []);
-
-    const contents = forecasts === undefined
-        ? <p><em>Loading... Please refresh once the ASP.NET backend has started. See <a href="https://aka.ms/jspsintegrationreact">https://aka.ms/jspsintegrationreact</a> for more details.</em></p>
-        : <table className="table table-striped" aria-labelledby="tableLabel">
-            <thead>
-                <tr>
-                    <th>Date</th>
-                    <th>Temp. (C)</th>
-                    <th>Temp. (F)</th>
-                    <th>Summary</th>
-                </tr>
-            </thead>
-            <tbody>
-                {forecasts.map(forecast =>
-                    <tr key={forecast.date}>
-                        <td>{forecast.date}</td>
-                        <td>{forecast.temperatureC}</td>
-                        <td>{forecast.temperatureF}</td>
-                        <td>{forecast.summary}</td>
-                    </tr>
-                )}
-            </tbody>
-        </table>;
-
-    return (
-        <div>
-            <h1 id="tableLabel">Weather forecast</h1>
-            <p>This component demonstrates fetching data from the server.</p>
-            {contents}
-        </div>
-    );
-    
-    async function populateWeatherData() {
-        const response = await fetch('weatherforecast');
-        if (response.ok) {
-            const data = await response.json();
-            setForecasts(data);
-        }
-    }
+function RoleDashboard() {
+  const { user } = useAuth();
+  switch (user?.role) {
+    case ROLES.STUDENT:
+      return <StudentDashboard />;
+    case ROLES.ADMIN:
+      return <AdminDashboard />;
+    case ROLES.SUPERVISOR:
+      return <SupervisorDashboard />;
+    case ROLES.EVALUATOR:
+      return <EvaluatorDashboard />;
+    default:
+      return <StudentDashboard />;
+  }
 }
 
-export default App;
+function AppRoutes() {
+  const { isAuthenticated } = useAuth();
+  return (
+    <Routes>
+      <Route path="/login" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />} />
+      <Route path="/dashboard/*" element={isAuthenticated ? <RoleDashboard /> : <Navigate to="/login" replace />} />
+      <Route path="*" element={<Navigate to={isAuthenticated ? "/dashboard" : "/login"} replace />} />
+    </Routes>
+  );
+}
+
+function AppWithMsalGuard() {
+  const { inProgress } = useMsal();
+  if (inProgress === InteractionStatus.Startup) {
+    return (
+      <div className="loading-screen">
+        <div className="loading-spinner" />
+        <p>Initializing…</p>
+      </div>
+    );
+  }
+  return <AppRoutes />;
+}
+
+export default function App() {
+  if (DEV_MODE) return <AppRoutes />;
+  return <AppWithMsalGuard />;
+}
