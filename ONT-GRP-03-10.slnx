@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="ont-grp-03-10.client/ont-grp-03-10.client.esproj">
+    <Build />
+    <Deploy />
+  </Project>
+  <Project Path="ONT-GRP-03-10.Server/ONT-GRP-03-10.Server.csproj" />
+</Solution>

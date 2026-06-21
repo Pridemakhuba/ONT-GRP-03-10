@@ -1,0 +1,6 @@
+@ONT_GRP_03_10.Server_HostAddress = http://localhost:5255
+
+GET {{ONT_GRP_03_10.Server_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
