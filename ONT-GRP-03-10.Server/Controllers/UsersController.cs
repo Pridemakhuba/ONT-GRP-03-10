@@ -97,7 +97,7 @@ public class UsersController : ControllerBase
 
         foreach (var username in dto.ADUsernames)
         {
-            var adUser = await _ad.GetUserFromADAsync(username);
+           var adUser = await _ad.GetUserFromADAsync(username, "");
             if (adUser == null)
             {
                 _db.ADImportLogs.Add(new ADImportLog { ADUsername = username, Action = "Failed", Details = "User not found in AD" });

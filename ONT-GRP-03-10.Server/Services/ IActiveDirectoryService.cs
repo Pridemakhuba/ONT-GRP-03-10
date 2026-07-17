@@ -8,7 +8,7 @@ public interface IActiveDirectoryService
     Task<bool> ValidateCredentialsAsync(string username, string password);
 
     /// <summary>Fetches a user's details from AD by their sAMAccountName</summary>
-    Task<ADUserDto?> GetUserFromADAsync(string username);
+Task<ADUserDto?> GetUserFromADAsync(string username, string password);
 
     /// <summary>Searches AD for users matching a name or username</summary>
     Task<List<ADUserDto>> SearchUsersAsync(string searchTerm);

@@ -1,60 +1,61 @@
-import { createContext, useContext, useState } from "react";
-import { DEV_MODE } from "../authConfig";
-import { useMsal, useIsAuthenticated } from "@azure/msal-react";
+// ============================================================
+// src/context/AuthContext.jsx
+// Global authentication state using React Context API
+// ============================================================
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { authApi } from '../services/api';
 
 const AuthContext = createContext(null);
 
-function DevAuthProvider({ children }) {
-  const [devUser, setDevUser] = useState(
-    () => JSON.parse(sessionStorage.getItem("pgrs_dev_user") || "null")
-  );
-
-  const login = (user) => {
-    sessionStorage.setItem("pgrs_dev_user", JSON.stringify(user));
-    setDevUser(user);
-  };
-
-  const logout = () => {
-    sessionStorage.removeItem("pgrs_dev_user");
-    setDevUser(null);
-  };
-
-  return (
-    <AuthContext.Provider value={{ user: devUser, login, logout, isAuthenticated: !!devUser, isDev: true }}>
-      {children}
-    </AuthContext.Provider>
-  );
-}
-
-function MsalAuthProvider({ children }) {
-  const { accounts, instance } = useMsal();
-  const isAuthenticated = useIsAuthenticated();
-  const account = accounts[0];
-
-  const user = account
-    ? {
-        id: account.localAccountId,
-        name: account.name,
-        username: account.username,
-        role: "User",
-        initials: account.name?.split(" ").map((n) => n[0]).slice(0, 2).join("").toUpperCase() || "U",
-      }
-    : null;
-
-  const logout = () => instance.logoutRedirect();
-
-  return (
-    <AuthContext.Provider value={{ user, logout, isAuthenticated, isDev: false }}>
-      {children}
-    </AuthContext.Provider>
-  );
-}
-
 export function AuthProvider({ children }) {
-  if (DEV_MODE) return <DevAuthProvider>{children}</DevAuthProvider>;
-  return <MsalAuthProvider>{children}</MsalAuthProvider>;
+  const [user, setUser]       = useState(null);
+  const [loading, setLoading] = useState(true); // true while checking stored session
+
+  // On mount: restore session from localStorage
+  useEffect(() => {
+    const stored = localStorage.getItem('prs_user');
+    const token  = localStorage.getItem('prs_token');
+    if (stored && token) {
+      setUser(JSON.parse(stored));
+    }
+    setLoading(false);
+  }, []);
+
+  /** Login with AD credentials. Returns the logged-in user on success. */
+  const login = useCallback(async (username, password) => {
+    const res = await authApi.login({ username, password });
+    const data = res.data;
+
+    localStorage.setItem('prs_token', data.token);
+    localStorage.setItem('prs_user',  JSON.stringify(data));
+    setUser(data);
+    return data;
+  }, []);
+
+  /** Clear session and redirect to login */
+  const logout = useCallback(async () => {
+    try { await authApi.logout(); } catch { /* ignore */ }
+    localStorage.removeItem('prs_token');
+    localStorage.removeItem('prs_user');
+    setUser(null);
+  }, []);
+
+  /** Convenience role checks */
+  const isStudent    = user?.role === 'Student';
+  const isSupervisor = user?.role === 'Supervisor';
+  const isEvaluator  = user?.role === 'Evaluator';
+  const isAdmin      = user?.role === 'Admin';
+
+  return (
+    <AuthContext.Provider value={{ user, login, logout, loading, isStudent, isSupervisor, isEvaluator, isAdmin }}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
+/** Hook to access auth state anywhere in the app */
 export function useAuth() {
-  return useContext(AuthContext);
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used within <AuthProvider>');
+  return ctx;
 }

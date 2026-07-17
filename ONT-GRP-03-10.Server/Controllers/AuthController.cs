@@ -1,6 +1,16 @@
 ﻿// ============================================================
 // PRS.Backend/Controllers/AuthController.cs
-// Handles Active Directory authentication + JWT issuance
+// Handles Authentication + JWT Issuance
+// 
+// AUTH FLOW:
+//   1. First checks database for test users (PasswordHash column)
+//   2. If not found in DB or no hash, falls back to Active Directory
+//   3. If both fail, returns 401 Unauthorized
+// 
+// TEST USERS (set via SQL script):
+//   admin      / test123  (Admin role)
+//   supervisor / test123  (Supervisor role)
+//   evaluator  / test123  (Evaluator role)
 // ============================================================
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -34,12 +44,7 @@ public class AuthController : ControllerBase
         _jwt = jwt;
         _logger = logger;
     }
-
-    /// <summary>
-    /// POST /api/auth/login
-    /// Authenticates user against Active Directory, creates/updates local record, returns JWT.
-    /// Username can be supplied as "username" or "domain\username".
-    /// </summary>
+    
     [HttpPost("login")]
     [AllowAnonymous]
     public async Task<IActionResult> Login([FromBody] ADLoginDto dto)
@@ -47,74 +52,58 @@ public class AuthController : ControllerBase
         if (!ModelState.IsValid)
             return BadRequest(ModelState);
 
-        // Strip domain prefix for AD lookup
         var cleanUsername = dto.Username.Contains('\\')
             ? dto.Username.Split('\\', 2)[1]
             : dto.Username;
 
-        // Step 1: Validate credentials against Active Directory
-        var isValid = await _ad.ValidateCredentialsAsync(cleanUsername, dto.Password);
-        if (!isValid)
-        {
-            _logger.LogWarning("Failed AD login attempt for: {Username}", cleanUsername);
-            return Unauthorized(new { message = "Invalid university credentials. Please try again." });
-        }
+        _logger.LogInformation("=== LOGIN ATTEMPT: {Username} ===", cleanUsername);
 
-        // Step 2: Fetch user details from AD
-        var adUser = await _ad.GetUserFromADAsync(cleanUsername);
-
-        // Step 3: Sync with local database
+        // Find user in database
         var user = await _db.Users.FirstOrDefaultAsync(u => u.ADUsername == cleanUsername);
-
+        
         if (user == null)
         {
-            // New user — import from AD automatically
-            user = new User
-            {
-                ADUsername = cleanUsername,
-                Email = adUser?.Email ?? $"{cleanUsername}@university.ac.za",
-                FirstName = adUser?.FirstName ?? cleanUsername,
-                LastName = adUser?.LastName ?? "",
-                Department = adUser?.Department,
-                Role = "Student", // Default role; Admin can change later
-                IsActive = true
-            };
-            _db.Users.Add(user);
+            _logger.LogWarning("User NOT FOUND in database: {Username}", cleanUsername);
+            return Unauthorized(new { message = "Invalid credentials." });
+        }
 
-            // Log import
-            _db.ADImportLogs.Add(new ADImportLog
-            {
-                ADUsername = cleanUsername,
-                Action = "Imported",
-                Details = $"Auto-imported on first login. Email: {user.Email}"
-            });
+        _logger.LogInformation("User FOUND: {Username}, HasPasswordHash: {HasHash}", 
+            cleanUsername, !string.IsNullOrEmpty(user.PasswordHash));
 
-            _logger.LogInformation("New user imported from AD: {Username}", cleanUsername);
+        // CHECK DATABASE PASSWORD FIRST
+        if (!string.IsNullOrEmpty(user.PasswordHash))
+        {
+            var dbResult = BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash);
+            _logger.LogInformation("Database password check: {Result}", dbResult);
+            
+            if (!dbResult)
+                return Unauthorized(new { message = "Invalid credentials." });
         }
         else
         {
-            // Existing user — update details from AD in case anything changed
-            if (adUser != null)
+            // NO PASSWORD HASH - try Active Directory
+            _logger.LogInformation("No PasswordHash, trying AD...");
+            try
             {
-                user.Email = adUser.Email.Length > 0 ? adUser.Email : user.Email;
-                user.FirstName = adUser.FirstName.Length > 0 ? adUser.FirstName : user.FirstName;
-                user.LastName = adUser.LastName.Length > 0 ? adUser.LastName : user.LastName;
-                user.Department = adUser.Department ?? user.Department;
-                user.UpdatedDate = DateTime.UtcNow;
+                var adResult = await _ad.ValidateCredentialsAsync(cleanUsername, dto.Password);
+                if (!adResult)
+                    return Unauthorized(new { message = "Invalid credentials." });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "AD authentication failed");
+                return Unauthorized(new { message = "Authentication unavailable." });
             }
         }
 
-        // Check if account is active
         if (!user.IsActive)
-            return Unauthorized(new { message = "Your account has been deactivated. Contact the system administrator." });
+            return Unauthorized(new { message = "Account deactivated." });
 
         user.LastLoginDate = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 
-        // Step 4: Generate JWT token
         var token = _jwt.GenerateToken(user);
-
-        _logger.LogInformation("Successful login: {Username} ({Role})", cleanUsername, user.Role);
+        _logger.LogInformation("=== LOGIN SUCCESS: {Username} ({Role}) ===", cleanUsername, user.Role);
 
         return Ok(new LoginResponseDto
         {
@@ -129,10 +118,6 @@ public class AuthController : ControllerBase
         });
     }
 
-    /// <summary>
-    /// GET /api/auth/me
-    /// Returns the profile of the currently authenticated user.
-    /// </summary>
     [HttpGet("me")]
     [Authorize]
     public async Task<IActionResult> GetCurrentUser()
@@ -157,13 +142,10 @@ public class AuthController : ControllerBase
         });
     }
 
-    /// <summary>POST /api/auth/logout — Client-side logout (invalidate client JWT)</summary>
     [HttpPost("logout")]
     [Authorize]
     public IActionResult Logout()
     {
-        // JWT is stateless — actual invalidation happens client-side by deleting the token.
-        // For production, implement a token blacklist/revocation list.
         return Ok(new { message = "Logged out successfully." });
     }
 }

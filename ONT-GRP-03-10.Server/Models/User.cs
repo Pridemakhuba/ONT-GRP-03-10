@@ -40,4 +40,5 @@ public class User
     public ICollection<AuditLog> AuditLogs { get; set; } = new List<AuditLog>();
 
     public string FullName => $"{FirstName} {LastName}";
+    public string PasswordHash { get; set; } = string.Empty;
 }

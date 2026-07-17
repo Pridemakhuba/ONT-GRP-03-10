@@ -1,0 +1,33 @@
+{
+    "version": "0.2.0",
+    "compounds": [
+        {
+            "name": "Run Full Stack",
+            "configurations": [
+                "Launch Backend",
+                "Launch Frontend"
+            ]
+        }
+    ],
+    "configurations": [
+        {
+            "name": "Launch Backend",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/ONT-GRP-03-10.Server/bin/Debug/net8.0/ONT-GRP-03-10.Server.dll",
+            "cwd": "${workspaceFolder}/ONT-GRP-03-10.Server",
+            "env": {
+                "ASPNETCORE_ENVIRONMENT": "Development"
+            }
+        },
+        {
+            "name": "Launch Frontend",
+            "type": "node",
+            "request": "launch",
+            "cwd": "${workspaceFolder}/ont-grp-03-10.client",
+            "runtimeExecutable": "npm",
+            "runtimeArgs": ["start"]
+        }
+    ]
+}
