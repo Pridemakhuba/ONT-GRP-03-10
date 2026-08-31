@@ -136,8 +136,10 @@ export default function AdminDashboard() {
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           <Link to="/admin/import-ad" className="btn btn-outline">📥 Import Users from AD</Link>
           <Link to="/admin/users" className="btn btn-outline">✏️ Manage Roles</Link>
+          <Link to="/admin/assign-supervisor" className="btn btn-outline">👨‍🏫 Assign Supervisors</Link>
           <Link to="/supervisor/dashboard" className="btn btn-outline">📋 View Proposals</Link>
           <Link to="/evaluator/dashboard" className="btn btn-outline">⭐ View Evaluations</Link>
+          <Link to="/admin/deadlines" className="btn btn-outline">📅 Manage Deadlines</Link>
         </div>
       </div>
     </div>

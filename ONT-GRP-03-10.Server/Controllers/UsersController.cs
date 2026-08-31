@@ -8,6 +8,7 @@ using PRS.Backend.Data;
 using PRS.Backend.DTOs;
 using PRS.Backend.Models;
 using PRS.Backend.Services;
+using System.Security.Claims;
 
 namespace PRS.Backend.Controllers;
 
@@ -191,7 +192,7 @@ public class StudentsController : ControllerBase
     [HttpGet("me")]
     public async Task<IActionResult> GetMyProfile()
     {
-        var userId = int.Parse(User.FindFirst("sub")?.Value ?? "0");
+        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
         var s = await _db.Students
             .Include(x => x.User)
             .Include(x => x.StudentSupervisors).ThenInclude(ss => ss.Supervisor).ThenInclude(sv => sv.User)

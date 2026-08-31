@@ -8,6 +8,7 @@ using PRS.Backend.Data;
 using PRS.Backend.DTOs;
 using PRS.Backend.Models;
 using PRS.Backend.Services;
+using System.Security.Claims;
 
 namespace PRS.Backend.Controllers;
 
@@ -82,20 +83,34 @@ public class ProposalsController : ControllerBase
 
     /// <summary>
     /// POST /api/proposals — Submit a new proposal with document upload.
-    /// Expects multipart/form-data with Title, Abstract, Keywords, Document file.
     /// </summary>
     [HttpPost]
     [Authorize(Roles = "Student")]
-    [RequestSizeLimit(25_000_000)] // 25MB limit to allow for multipart overhead
+    [RequestSizeLimit(25_000_000)]
     public async Task<IActionResult> Create([FromForm] CreateProposalDto dto, IFormFile document)
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
         if (document == null) return BadRequest(new { message = "Proposal document is required" });
 
+        // Check proposal deadline
+        var proposalDeadline = await _db.Deadlines
+            .Where(d => d.DeadlineType == "Proposal" && d.IsActive)
+            .OrderByDescending(d => d.DueDate)
+            .FirstOrDefaultAsync();
+
+        if (proposalDeadline != null && DateTime.UtcNow > proposalDeadline.DueDate)
+        {
+            return BadRequest(new { message = $"Proposal submission closed. Deadline was {proposalDeadline.DueDate:dd MMMM yyyy}." });
+        }
+
         // Get the student profile for the current user
-        var userId = int.Parse(User.FindFirst("sub")?.Value ?? "0");
+        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");        
         var student = await _db.Students.FirstOrDefaultAsync(s => s.UserID == userId);
-        if (student == null) return BadRequest(new { message = "Student profile not found. Contact the administrator." });
+        if (student == null)
+        {
+            _logger.LogWarning("Student not found for UserID: {UserId}", userId);
+            return BadRequest(new { message = "Student profile not found. Contact the administrator." });
+        }
 
         // Upload the document
         string docPath;
@@ -118,7 +133,7 @@ public class ProposalsController : ControllerBase
         proposal.DocumentPath = await _files.UploadProposalAsync(document, proposal.ProposalID);
         await _db.SaveChangesAsync();
 
-        // Notify primary supervisor to sign off
+        // Notify primary supervisor
         var primarySupervisor = await _db.StudentSupervisors
             .Where(ss => ss.StudentID == student.StudentID && ss.IsPrimary)
             .Include(ss => ss.Supervisor).ThenInclude(s => s.User)
@@ -172,10 +187,17 @@ public class ProposalsController : ControllerBase
         if (proposal.Status != "Draft" && proposal.Status != "Revised")
             return BadRequest(new { message = "Only Draft or Revised proposals can be submitted" });
 
+        // Check deadline
+        var proposalDeadline = await _db.Deadlines
+            .Where(d => d.DeadlineType == "Proposal" && d.IsActive)
+            .OrderByDescending(d => d.DueDate)
+            .FirstOrDefaultAsync();
+        if (proposalDeadline != null && DateTime.UtcNow > proposalDeadline.DueDate)
+            return BadRequest(new { message = $"Submission closed. Deadline was {proposalDeadline.DueDate:dd MMMM yyyy}." });
+
         proposal.Status = "Submitted";
         proposal.SubmissionDate = DateTime.UtcNow;
         await _db.SaveChangesAsync();
-
         return Ok(new { message = "Proposal submitted successfully", proposal });
     }
 
@@ -191,10 +213,9 @@ public class ProposalsController : ControllerBase
 
         proposal.SupervisorSigned = true;
         proposal.SupervisorSignedDate = DateTime.UtcNow;
-        proposal.Status = "Submitted"; // Ready for evaluator assignment
+        proposal.Status = "Submitted";
         await _db.SaveChangesAsync();
 
-        // Notify student
         _db.Notifications.Add(new Notification
         {
             UserID = proposal.Student.UserID,
@@ -202,7 +223,6 @@ public class ProposalsController : ControllerBase
             Type = "SupervisorSignoff"
         });
         await _db.SaveChangesAsync();
-
         return Ok(new { message = "Proposal signed off successfully" });
     }
 
@@ -220,7 +240,6 @@ public class ProposalsController : ControllerBase
             .FirstOrDefaultAsync(p => p.ProposalID == id);
         if (proposal == null) return NotFound();
 
-        // Get the student's supervisors — they CANNOT evaluate their own student
         var studentSupervisorIds = await _db.StudentSupervisors
             .Where(ss => ss.StudentID == proposal.StudentID)
             .Select(ss => ss.SupervisorID)
@@ -239,7 +258,6 @@ public class ProposalsController : ControllerBase
                     EvaluatorID = evaluatorId
                 });
 
-                // Send email notification to evaluator
                 var evaluator = await _db.Supervisors.Include(s => s.User).FirstOrDefaultAsync(s => s.SupervisorID == evaluatorId);
                 if (evaluator != null)
                 {
@@ -292,219 +310,7 @@ public class ProposalsController : ControllerBase
             EvaluatorID = pe.EvaluatorID,
             EvaluatorName = pe.Evaluator?.User?.FullName ?? "",
             AssignedDate = pe.AssignedDate,
-            HasSubmittedEvaluation = false // computed separately if needed
+            HasSubmittedEvaluation = false
         }).ToList() ?? new()
     };
-}
-
-// ============================================================
-// PRS.Backend/Controllers/EvaluationsController.cs
-// ============================================================
-[ApiController]
-[Route("api/evaluations")]
-[Authorize]
-public class EvaluationsController : ControllerBase
-{
-    private readonly ApplicationDbContext _db;
-    private readonly RubricCalculatorService _rubric;
-    private readonly IFileUploadService _files;
-    private readonly IEmailService _email;
-
-    public EvaluationsController(ApplicationDbContext db, RubricCalculatorService rubric, IFileUploadService files, IEmailService email)
-    {
-        _db = db;
-        _rubric = rubric;
-        _files = files;
-        _email = email;
-    }
-
-    /// <summary>POST /api/evaluations — Submit a full rubric evaluation</summary>
-    [HttpPost]
-    [Authorize(Roles = "Evaluator,Supervisor")]
-    [RequestSizeLimit(25_000_000)]
-    public async Task<IActionResult> Submit([FromForm] SubmitEvaluationDto dto, IFormFile? evaluationDocument)
-    {
-        if (!ModelState.IsValid) return BadRequest(ModelState);
-
-        // Get current user's supervisor profile
-        var userId = int.Parse(User.FindFirst("sub")?.Value ?? "0");
-        var supervisor = await _db.Supervisors.FirstOrDefaultAsync(s => s.UserID == userId);
-        if (supervisor == null) return Forbid();
-
-        // Verify this evaluator is assigned to this proposal
-        var isAssigned = await _db.ProposalEvaluators
-            .AnyAsync(pe => pe.ProposalID == dto.ProposalID && pe.EvaluatorID == supervisor.SupervisorID);
-        if (!isAssigned)
-            return Forbid();
-
-        // Prevent duplicate evaluation
-        if (await _db.EvaluationRubrics.AnyAsync(r => r.ProposalID == dto.ProposalID && r.EvaluatorID == supervisor.SupervisorID))
-            return Conflict(new { message = "You have already submitted an evaluation for this proposal" });
-
-        // Upload optional evaluation document
-        string? docPath = null;
-        if (evaluationDocument != null)
-        {
-            try { docPath = await _files.UploadEvaluationDocumentAsync(evaluationDocument, 0); }
-            catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
-        }
-
-        var rubric = new EvaluationRubric
-        {
-            ProposalID = dto.ProposalID,
-            EvaluatorID = supervisor.SupervisorID,
-            ClarityScore = dto.ClarityScore,
-            LiteratureScore = dto.LiteratureScore,
-            MethodologyScore = dto.MethodologyScore,
-            FeasibilityScore = dto.FeasibilityScore,
-            NoveltyScore = dto.NoveltyScore,
-            ContributionScore = dto.ContributionScore,
-            InnovationScore = dto.InnovationScore,
-            WritingScore = dto.WritingScore,
-            LogicScore = dto.LogicScore,
-            CitationScore = dto.CitationScore,
-            EthicsScore = dto.EthicsScore,
-            RiskScore = dto.RiskScore,
-            Recommendation = dto.Recommendation,
-            FeedbackNotes = dto.FeedbackNotes,
-            ConfidentialNotes = dto.ConfidentialNotes,
-            EvaluationDocumentPath = docPath,
-            TotalScore = _rubric.CalculateTotalScore(new EvaluationRubric
-            {
-                // Pass scores for calculation
-                ClarityScore = dto.ClarityScore,
-                LiteratureScore = dto.LiteratureScore,
-                MethodologyScore = dto.MethodologyScore,
-                FeasibilityScore = dto.FeasibilityScore,
-                NoveltyScore = dto.NoveltyScore,
-                ContributionScore = dto.ContributionScore,
-                InnovationScore = dto.InnovationScore,
-                WritingScore = dto.WritingScore,
-                LogicScore = dto.LogicScore,
-                CitationScore = dto.CitationScore,
-                EthicsScore = dto.EthicsScore,
-                RiskScore = dto.RiskScore
-            })
-        };
-
-        _db.EvaluationRubrics.Add(rubric);
-
-        // Check if ALL assigned evaluators have submitted — if so, update proposal status
-        var proposal = await _db.Proposals.Include(p => p.Student).ThenInclude(s => s.User)
-                                        .Include(p => p.AssignedEvaluators).FirstOrDefaultAsync(p => p.ProposalID == dto.ProposalID);
-        var totalAssigned = proposal?.AssignedEvaluators.Count ?? 0;
-        var completedCount = await _db.EvaluationRubrics.CountAsync(r => r.ProposalID == dto.ProposalID) + 1;
-
-        if (proposal != null && completedCount >= totalAssigned)
-        {
-            // Compute average score to determine final status
-            var allScores = await _db.EvaluationRubrics.Where(r => r.ProposalID == dto.ProposalID).Select(r => r.TotalScore).ToListAsync();
-            allScores.Add(rubric.TotalScore);
-            var avg = allScores.Average();
-
-            proposal.Status = avg >= 70 ? "Accepted" : "Rejected";
-
-            // Notify student
-            if (proposal.Student?.User != null)
-            {
-                await _email.SendProposalStatusUpdateAsync(
-                    proposal.Student.User.Email, proposal.Student.User.FullName, proposal.Title, proposal.Status);
-                _db.Notifications.Add(new Notification
-                {
-                    UserID = proposal.Student.UserID,
-                    Message = $"Evaluation complete for '{proposal.Title}'. Status: {proposal.Status}. Average score: {avg:F1}/100.",
-                    Type = "EvaluationComplete"
-                });
-            }
-        }
-
-        await _db.SaveChangesAsync();
-        return CreatedAtAction(nameof(GetById), new { id = rubric.RubricID }, ToDto(rubric, true));
-    }
-
-    [HttpGet("{id}")]
-    public async Task<IActionResult> GetById(int id)
-    {
-        var r = await _db.EvaluationRubrics.Include(x => x.Evaluator).ThenInclude(s => s.User).FirstOrDefaultAsync(x => x.RubricID == id);
-        return r == null ? NotFound() : Ok(ToDto(r, CanSeeConfidential()));
-    }
-
-    [HttpGet("proposal/{proposalId}")]
-    public async Task<IActionResult> GetByProposal(int proposalId)
-    {
-        var rubrics = await _db.EvaluationRubrics
-            .Where(r => r.ProposalID == proposalId)
-            .Include(r => r.Evaluator).ThenInclude(s => s.User)
-            .ToListAsync();
-        return Ok(rubrics.Select(r => ToDto(r, CanSeeConfidential())));
-    }
-
-    /// <summary>GET /api/evaluations/proposal/{proposalId}/results — Aggregated rubric results</summary>
-    [HttpGet("proposal/{proposalId}/results")]
-    public async Task<IActionResult> GetResults(int proposalId)
-    {
-        var proposal = await _db.Proposals.FindAsync(proposalId);
-        if (proposal == null) return NotFound();
-
-        var rubrics = await _db.EvaluationRubrics
-            .Where(r => r.ProposalID == proposalId)
-            .Include(r => r.Evaluator).ThenInclude(s => s.User)
-            .ToListAsync();
-
-        var results = new ProposalRubricResultsDto
-        {
-            ProposalID = proposalId,
-            ProposalTitle = proposal.Title,
-            EvaluatorCount = rubrics.Count,
-            AverageScore = rubrics.Count > 0 ? Math.Round(rubrics.Average(r => r.TotalScore), 2) : 0,
-            OverallDecision = rubrics.Count > 0 ? _rubric.GetRecommendation(rubrics.Average(r => r.TotalScore)) : "Pending",
-            Evaluations = rubrics.Select(r => ToDto(r, CanSeeConfidential())).ToList()
-        };
-        return Ok(results);
-    }
-
-    [HttpGet("evaluator/{evaluatorId}")]
-    [Authorize(Roles = "Evaluator,Supervisor,Admin")]
-    public async Task<IActionResult> GetByEvaluator(int evaluatorId)
-    {
-        var rubrics = await _db.EvaluationRubrics
-            .Where(r => r.EvaluatorID == evaluatorId)
-            .Include(r => r.Proposal)
-            .ToListAsync();
-        return Ok(rubrics.Select(r => ToDto(r, true)));
-    }
-
-    private bool CanSeeConfidential() =>
-        User.IsInRole("Supervisor") || User.IsInRole("Admin");
-
-    private EvaluationRubricDto ToDto(EvaluationRubric r, bool includeConfidential)
-    {
-        var sections = _rubric.CalculateSectionScores(r);
-        return new EvaluationRubricDto
-        {
-            RubricID = r.RubricID,
-            ProposalID = r.ProposalID,
-            EvaluatorID = r.EvaluatorID,
-            EvaluatorName = r.Evaluator?.User?.FullName ?? "",
-            ClarityScore = r.ClarityScore,
-            LiteratureScore = r.LiteratureScore,
-            MethodologyScore = r.MethodologyScore,
-            FeasibilityScore = r.FeasibilityScore,
-            NoveltyScore = r.NoveltyScore,
-            ContributionScore = r.ContributionScore,
-            InnovationScore = r.InnovationScore,
-            WritingScore = r.WritingScore,
-            LogicScore = r.LogicScore,
-            CitationScore = r.CitationScore,
-            EthicsScore = r.EthicsScore,
-            RiskScore = r.RiskScore,
-            TotalScore = r.TotalScore,
-            Recommendation = r.Recommendation,
-            FeedbackNotes = r.FeedbackNotes,
-            ConfidentialNotes = includeConfidential ? r.ConfidentialNotes : null,
-            EvaluationDocumentPath = r.EvaluationDocumentPath,
-            SubmittedDate = r.SubmittedDate,
-            SectionScores = sections
-        };
-    }
 }

@@ -114,5 +114,13 @@ export const notificationsApi = {
   markRead:    (id) => api.put(`/notifications/${id}/read`),
   markAllRead: ()   => api.put('/notifications/mark-all-read'),
 };
+// ---- Deadlines ----
+export const deadlinesApi = {
+  getAll:    ()   => api.get('/deadlines'),
+  getActive: ()   => api.get('/deadlines/active'),
+  create:    (data) => api.post('/deadlines', data),
+  update:    (id, data) => api.put(`/deadlines/${id}`, data),
+  delete:    (id)  => api.delete(`/deadlines/${id}`),
+};
 
 export default api;

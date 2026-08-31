@@ -10,7 +10,7 @@ import 'react-toastify/dist/ReactToastify.css';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Sidebar from './components/common/Sidebar';
 import Login from './components/auth/Login';
-
+import ManageDeadlines from './components/admin/ManageDeadlines';
 // Lazy imports for code splitting
 import StudentDashboard from './components/student/StudentDashboard';
 import SubmitProposal from './components/student/SubmitProposal';
@@ -27,6 +27,7 @@ import EvaluationForm from './components/evaluator/EvaluationForm';
 import AdminDashboard from './components/admin/AdminDashboard';
 import UserManagement from './components/admin/UserManagement';
 import ImportFromAD from './components/admin/ImportFromAD';
+import AssignSupervisor from './components/admin/AssignSupervisor';
 
 // ---- Route guard: redirect to login if not authenticated ----
 function ProtectedRoute({ children, roles }) {
@@ -121,9 +122,11 @@ function AppRoutes() {
         <ProtectedRoute roles={['Admin']}>
           <AppShell>
             <Routes>
-              <Route path="dashboard"     element={<AdminDashboard />} />
-              <Route path="users"         element={<UserManagement />} />
-              <Route path="import-ad"     element={<ImportFromAD />} />
+              <Route path="dashboard"          element={<AdminDashboard />} />
+              <Route path="users"              element={<UserManagement />} />
+              <Route path="import-ad"          element={<ImportFromAD />} />
+              <Route path="assign-supervisor"  element={<AssignSupervisor />} />
+              <Route path="deadlines" element={<ManageDeadlines />} />
             </Routes>
           </AppShell>
         </ProtectedRoute>
