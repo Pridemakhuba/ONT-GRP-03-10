@@ -1,0 +1,12 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Profile 1",
+      "type": "node",
+      "request": "launch",
+      "program": "C:\\Users\\pridem\\Documents\\IT Files\\ONT-Project\\ONT-GRP-03-10\\ONT-GRP-03-10.Server"
+    }
+  ],
+  "compounds": []
+}
