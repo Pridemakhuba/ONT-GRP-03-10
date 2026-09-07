@@ -1,16 +1,10 @@
 ﻿// ============================================================
 // PRS.Backend/Controllers/AuthController.cs
-// Handles Authentication + JWT Issuance
+// Handles Active Directory + Database authentication + JWT
+// Auto-creates Student record for new Student users
 // 
-// AUTH FLOW:
-//   1. First checks database for test users (PasswordHash column)
-//   2. If not found in DB or no hash, falls back to Active Directory
-//   3. If both fail, returns 401 Unauthorized
-// 
-// TEST USERS (set via SQL script):
-//   admin      / test123  (Admin role)
-//   supervisor / test123  (Supervisor role)
-//   evaluator  / test123  (Evaluator role)
+// TEST USERS: admin/test123, supervisor/test123, evaluator/test123
+// AD USERS: s226147568/campus_password
 // ============================================================
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -44,7 +38,7 @@ public class AuthController : ControllerBase
         _jwt = jwt;
         _logger = logger;
     }
-    
+
     [HttpPost("login")]
     [AllowAnonymous]
     public async Task<IActionResult> Login([FromBody] ADLoginDto dto)
@@ -60,44 +54,96 @@ public class AuthController : ControllerBase
 
         // Find user in database
         var user = await _db.Users.FirstOrDefaultAsync(u => u.ADUsername == cleanUsername);
-        
-        if (user == null)
-        {
-            _logger.LogWarning("User NOT FOUND in database: {Username}", cleanUsername);
-            return Unauthorized(new { message = "Invalid credentials." });
-        }
 
-        _logger.LogInformation("User FOUND: {Username}, HasPasswordHash: {HasHash}", 
-            cleanUsername, !string.IsNullOrEmpty(user.PasswordHash));
-
-        // CHECK DATABASE PASSWORD FIRST
-        if (!string.IsNullOrEmpty(user.PasswordHash))
+        // === STEP 1: Try database password first (for test accounts) ===
+        if (user != null && !string.IsNullOrEmpty(user.PasswordHash))
         {
-            var dbResult = BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash);
-            _logger.LogInformation("Database password check: {Result}", dbResult);
-            
-            if (!dbResult)
-                return Unauthorized(new { message = "Invalid credentials." });
-        }
-        else
-        {
-            // NO PASSWORD HASH - try Active Directory
-            _logger.LogInformation("No PasswordHash, trying AD...");
             try
             {
-                var adResult = await _ad.ValidateCredentialsAsync(cleanUsername, dto.Password);
-                if (!adResult)
-                    return Unauthorized(new { message = "Invalid credentials." });
+                if (BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash))
+                {
+                    _logger.LogInformation("DB LOGIN: {Username} ({Role})", cleanUsername, user.Role);
+                    return await BuildLoginResponse(user, cleanUsername);
+                }
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "AD authentication failed");
-                return Unauthorized(new { message = "Authentication unavailable." });
-            }
+            catch { /* BCrypt failed, try AD */ }
         }
 
+        // === STEP 2: Try Active Directory ===
+        bool adValid = false;
+        try
+        {
+            adValid = await _ad.ValidateCredentialsAsync(cleanUsername, dto.Password);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "AD unavailable for: {Username}", cleanUsername);
+            
+            // If AD is down and no database password, reject
+            if (user == null || string.IsNullOrEmpty(user.PasswordHash))
+                return StatusCode(503, new { message = "Authentication service unavailable." });
+        }
+
+        if (adValid)
+        {
+            // Get AD details
+            ADUserDto? adUser = null;
+            try { adUser = await _ad.GetUserFromADAsync(cleanUsername, dto.Password); } catch { }
+
+            if (user == null)
+            {
+                user = new User
+                {
+                    ADUsername = cleanUsername,
+                    Email = adUser?.Email ?? $"{cleanUsername}@mandela.ac.za",
+                    FirstName = adUser?.FirstName ?? cleanUsername,
+                    LastName = adUser?.LastName ?? "",
+                    Department = adUser?.Department,
+                    Role = "Student",
+                    IsActive = true
+                };
+                _db.Users.Add(user);
+                await _db.SaveChangesAsync();
+                _logger.LogInformation("New user from AD: {Username}", cleanUsername);
+            }
+            else if (adUser != null)
+            {
+                user.Email = !string.IsNullOrEmpty(adUser.Email) ? adUser.Email : user.Email;
+                user.FirstName = !string.IsNullOrEmpty(adUser.FirstName) ? adUser.FirstName : user.FirstName;
+                user.LastName = !string.IsNullOrEmpty(adUser.LastName) ? adUser.LastName : user.LastName;
+                user.Department = adUser.Department ?? user.Department;
+                user.UpdatedDate = DateTime.UtcNow;
+            }
+
+            return await BuildLoginResponse(user, cleanUsername);
+        }
+
+        // === NO VALID LOGIN ===
+        _logger.LogWarning("Failed login: {Username}", cleanUsername);
+        return Unauthorized(new { message = "Invalid credentials." });
+    }
+
+    private async Task<IActionResult> BuildLoginResponse(User user, string cleanUsername)
+    {
         if (!user.IsActive)
             return Unauthorized(new { message = "Account deactivated." });
+
+        // Auto-create Student record if missing
+        if (user.Role == "Student")
+        {
+            var existingStudent = await _db.Students.FirstOrDefaultAsync(s => s.UserID == user.UserID);
+            if (existingStudent == null)
+            {
+                _db.Students.Add(new Student
+                {
+                    UserID = user.UserID,
+                    StudentNumber = cleanUsername,
+                    Program = "",
+                    ResearchTopic = ""
+                });
+                _logger.LogInformation("Student record auto-created: {Username}", cleanUsername);
+            }
+        }
 
         user.LastLoginDate = DateTime.UtcNow;
         await _db.SaveChangesAsync();
@@ -124,7 +170,6 @@ public class AuthController : ControllerBase
     {
         var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "0");
         var user = await _db.Users.FindAsync(userId);
-
         if (user == null) return NotFound();
 
         return Ok(new UserDto

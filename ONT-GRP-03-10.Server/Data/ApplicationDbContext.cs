@@ -24,7 +24,9 @@ public class ApplicationDbContext : DbContext
     public DbSet<Notification> Notifications { get; set; }
     public DbSet<AuditLog> AuditLogs { get; set; }
     public DbSet<ADImportLog> ADImportLogs { get; set; }
+    public DbSet<Deadline> Deadlines { get; set; }
 
+    
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

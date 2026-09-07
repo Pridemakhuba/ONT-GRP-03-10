@@ -20,97 +20,87 @@ public class ActiveDirectoryService : IActiveDirectoryService
         _logger = logger;
     }
 
-    /// <summary>
-    /// Validates university credentials against Active Directory via LDAP
-    /// </summary>
-   public async Task<bool> ValidateCredentialsAsync(string username, string password)
-{
-    return await Task.Run(() =>
+    public async Task<bool> ValidateCredentialsAsync(string username, string password)
     {
-        try
+        return await Task.Run(() =>
         {
-            var cleanUsername = StripDomain(username);
-          var bindDn = $"{cleanUsername}@{Domain}.ac.za";
-
-            var conn = new LdapConnection();
             try
             {
-                conn.Connect(LdapHost, LdapPort);
-                conn.Bind(bindDn, password);
-                
-                var isBound = conn.Bound;
-                _logger.LogInformation("AD bind result for {Username}: {Bound}", cleanUsername, isBound);
-                return isBound;
+                var cleanUsername = StripDomain(username);
+                var bindDn = $"{cleanUsername}@{Domain}.ac.za";
+
+                var conn = new LdapConnection();
+                try
+                {
+                    conn.Connect(LdapHost, LdapPort);
+                    conn.Bind(bindDn, password);
+                    
+                    var isBound = conn.Bound;
+                    _logger.LogInformation("AD bind result for {Username}: {Bound}", cleanUsername, isBound);
+                    return isBound;
+                }
+                finally
+                {
+                    try { conn.Disconnect(); } catch { }
+                }
             }
-            finally
+            catch (LdapException ex)
             {
-                try { conn.Disconnect(); } catch { }
+                _logger.LogWarning("LDAP auth failed for {Username}: {Message}", username, ex.Message);
+                return false;
             }
-        }
-        catch (LdapException ex)
-        {
-            _logger.LogWarning("LDAP auth failed for {Username}: {Message}", username, ex.Message);
-            return false;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "LDAP connection error for {Username}", username);
-            return false;
-        }
-    });
-}
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "LDAP connection error for {Username}", username);
+                return false;
+            }
+        });
+    }
 
-
-    /// <summary>
-    /// Retrieves user attributes from AD after authentication succeeds
-    /// </summary>
-       public async Task<ADUserDto?> GetUserFromADAsync(string username, string password)
-{
-    return await Task.Run(() =>
+    public async Task<ADUserDto?> GetUserFromADAsync(string username, string password)
     {
-        try
+        return await Task.Run(() =>
         {
-            var cleanUsername = StripDomain(username);
-            var filter = $"(sAMAccountName={EscapeLdapFilter(cleanUsername)})";
-            var bindDn = $"{cleanUsername}@{Domain}.ac.za";
-
-            var conn = new LdapConnection();
             try
             {
-                conn.Connect(LdapHost, LdapPort);
-                // Bind with user's credentials instead of anonymous
-                conn.Bind(bindDn, password);
+                var cleanUsername = StripDomain(username);
+                var filter = $"(sAMAccountName={EscapeLdapFilter(cleanUsername)})";
+                var bindDn = $"{cleanUsername}@{Domain}.ac.za";
 
-                var attrs = new[] { "sAMAccountName", "givenName", "sn", "mail", "department", "title", "userPrincipalName" };
-                var results = conn.Search(SearchBase, LdapConnection.SCOPE_SUB, filter, attrs, false);
+                var conn = new LdapConnection();
+                try
+                {
+                    conn.Connect(LdapHost, LdapPort);
+                    conn.Bind(bindDn, password);
 
-                if (results.hasMore())
-                {
-                    var entry = results.next();
-                    return MapToADUserDto(entry);
+                    var attrs = new[] { "sAMAccountName", "givenName", "sn", "mail", "department", "title", "userPrincipalName" };
+                    var results = conn.Search(SearchBase, LdapConnection.SCOPE_SUB, filter, attrs, false);
+
+                    if (results.hasMore())
+                    {
+                        var entry = results.next();
+                        return MapToADUserDto(entry);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("User {Username} not found in AD search", cleanUsername);
+                    }
+                    
+                    return null;
                 }
-                else
+                finally
                 {
-                    _logger.LogWarning("User {Username} not found in AD search", cleanUsername);
+                    try { conn.Disconnect(); } catch { }
                 }
-                
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching AD user: {Username}", username);
                 return null;
             }
-            finally
-            {
-                try { conn.Disconnect(); } catch { }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error fetching AD user: {Username}", username);
-            return null;
-        }
-    });
-}
-    /// <summary>
-    /// Searches AD for users matching a search term
-    /// </summary>
+        });
+    }
+
     public async Task<List<ADUserDto>> SearchUsersAsync(string searchTerm)
     {
         return await Task.Run(() =>
@@ -125,27 +115,36 @@ public class ActiveDirectoryService : IActiveDirectoryService
                 try
                 {
                     conn.Connect(LdapHost, LdapPort);
-                    conn.Bind("", "");
+                    
+                    // Try anonymous bind - if it fails, we catch and return empty
+                    try 
+                    { 
+                        conn.Bind("", ""); 
+                    }
+                    catch (LdapException ex)
+                    {
+                        _logger.LogWarning("AD anonymous bind failed for search: {Message}. Searches require authenticated bind.", ex.Message);
+                        return users; // Return empty - anonymous search not allowed
+                    }
 
                     var attrs = new[] { "sAMAccountName", "givenName", "sn", "mail", "department", "title" };
-                    var results = conn.Search(SearchBase, LdapConnection.SCOPE_ONE, filter, attrs, false);
+                    var results = conn.Search(SearchBase, LdapConnection.SCOPE_SUB, filter, attrs, false);
 
-                    // Use hasMore() (lowercase) not HasMore()
                     while (results.hasMore())
                     {
                         try
                         {
-                            // Use next() (lowercase) not Next()
                             var entry = results.next();
                             var dto = MapToADUserDto(entry);
                             if (dto != null) users.Add(dto);
                         }
                         catch (LdapReferralException) { /* skip referrals */ }
+                        catch (LdapException) { break; } // Stop on search errors
                     }
                 }
                 finally
                 {
-                    conn.Disconnect();
+                    try { conn.Disconnect(); } catch { }
                 }
             }
             catch (Exception ex)
@@ -156,27 +155,25 @@ public class ActiveDirectoryService : IActiveDirectoryService
         });
     }
 
-    // ---- Private helpers ----
-
-   private static ADUserDto? MapToADUserDto(LdapEntry entry)
-{
-    try
+    private static ADUserDto? MapToADUserDto(LdapEntry entry)
     {
-        // Instead of reading from AD, use the DB values we already have
-        var adUsername = GetAttr(entry, "sAMAccountName");
-        
-        return new ADUserDto
+        try
         {
-            ADUsername = adUsername,
-            FirstName = GetAttr(entry, "givenName"),
-            LastName = GetAttr(entry, "sn"),
-            Email = GetAttr(entry, "mail"),
-            Department = GetAttr(entry, "department"),
-            Title = GetAttr(entry, "title")
-        };
+            var adUsername = GetAttr(entry, "sAMAccountName");
+            
+            return new ADUserDto
+            {
+                ADUsername = adUsername,
+                FirstName = GetAttr(entry, "givenName"),
+                LastName = GetAttr(entry, "sn"),
+                Email = GetAttr(entry, "mail"),
+                Department = GetAttr(entry, "department"),
+                Title = GetAttr(entry, "title")
+            };
+        }
+        catch { return null; }
     }
-    catch { return null; }
-}
+
     private static string GetAttr(LdapEntry entry, string attr)
     {
         try
