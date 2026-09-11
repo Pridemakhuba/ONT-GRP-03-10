@@ -25,8 +25,9 @@ public class ApplicationDbContext : DbContext
     public DbSet<AuditLog> AuditLogs { get; set; }
     public DbSet<ADImportLog> ADImportLogs { get; set; }
     public DbSet<Deadline> Deadlines { get; set; }
+    public DbSet<ProgressReport> ProgressReports { get; set; }
 
-    
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -170,6 +171,21 @@ public class ApplicationDbContext : DbContext
         {
             entity.HasKey(a => a.ImportID);
             entity.Property(a => a.ImportDate).HasDefaultValueSql("GETDATE()");
+        });
+
+        // ---- ProgressReport ----
+        modelBuilder.Entity<ProgressReport>(entity =>
+        {
+            entity.HasKey(p => p.ProgressReportID);
+            entity.Property(p => p.SubmittedDate).HasDefaultValueSql("GETDATE()");
+            entity.HasOne(p => p.Student)
+                  .WithMany()
+                  .HasForeignKey(p => p.StudentID)
+                  .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(p => p.Supervisor)
+                  .WithMany()
+                  .HasForeignKey(p => p.SupervisorID)
+                  .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

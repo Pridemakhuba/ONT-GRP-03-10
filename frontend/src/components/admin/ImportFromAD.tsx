@@ -1,5 +1,5 @@
 // src/components/admin/ImportFromAD.tsx
-import React, { useState } from 'react';
+import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usersApi } from '../../services/api';

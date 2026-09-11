@@ -1,5 +1,5 @@
 // src/components/admin/AdminDashboard.tsx
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { usersApi, studentsApi, supervisorsApi, proposalsApi, assignmentsApi } from '../../services/api';
 import { resolveFileUrl } from '../../services/api';
@@ -14,18 +14,11 @@ interface Stats {
     pending: number;
 }
 
-// Resolves a proposal's uploaded PDF URL.
-// ASSUMPTION: Proposal has one of these fields. Tell me the real field name from types.ts to lock this down.
 function getProposalFileUrl(p: any): string | null {
     const raw = p.documentUrl || p.filePath || p.fileUrl || p.documentPath || null;
     return resolveFileUrl(raw);
 }
 
-// Any account on one of these domains is eligible to be picked as a
-// supervisor (or an evaluator, elsewhere in the app) — this is NOT limited
-// to users who already have a row in the Supervisor table. If someone
-// without one is picked, we create that Supervisor record on the fly
-// (see handleAssign) before assigning.
 const ELIGIBLE_SUPERVISOR_EVALUATOR_DOMAINS = [
     '@prs.ac.za',
     '@gmail.com',
@@ -41,7 +34,6 @@ function isSupervisorEligible(u: User): boolean {
     );
 }
 
-// How often to silently re-fetch dashboard data in the background (ms).
 const AUTO_REFRESH_INTERVAL = 30_000;
 
 export default function AdminDashboard() {
@@ -50,19 +42,15 @@ export default function AdminDashboard() {
     const [recentProposals, setRecentProposals] = useState<Proposal[]>([]);
     const [students, setStudents] = useState<Student[]>([]);
     const [allUsers, setAllUsers] = useState<User[]>([]);
-    const [supervisors, setSupervisors] = useState<Supervisor[]>([]); // existing Supervisor-table rows, used only to reuse supervisorIDs
+    const [supervisors, setSupervisors] = useState<Supervisor[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
 
-    // Assign-supervisor UI state: which student row has its dropdown open,
-    // and the chosen candidate (by userID, as a string for the <select>) per student
     const [assigning, setAssigning] = useState<number | null>(null);
     const [selectedCandidate, setSelectedCandidate] = useState<Record<number, string>>({});
     const [savingId, setSavingId] = useState<number | null>(null);
     const [assignError, setAssignError] = useState<string | null>(null);
 
-    // Avoids piling up overlapping requests if a load() is already in flight
-    // (e.g. auto-refresh firing while a manual refresh is still pending).
     const loadingRef = useRef(false);
 
     const load = useCallback(async (opts: { silent?: boolean } = {}) => {
@@ -83,8 +71,8 @@ export default function AdminDashboard() {
                 students: sRes.data.length,
                 supervisors: supRes.data.length,
                 proposals: pRes.data.length,
-                accepted: pRes.data.filter(p => p.status === 'Accepted').length,
-                pending: pRes.data.filter(p => p.status === 'UnderReview').length,
+                accepted: pRes.data.filter((p: any) => p.status === 'APPROVED_GRADUATION').length,
+                pending: pRes.data.filter((p: any) => p.status === 'UNDER_EVALUATION').length,
             });
             setRecentUsers(uRes.data.slice(0, 5));
             setRecentProposals(pRes.data.slice(0, 5));
@@ -92,8 +80,7 @@ export default function AdminDashboard() {
             setAllUsers(uRes.data);
             setSupervisors(supRes.data);
         } catch {
-            /* silent refreshes fail quietly; an initial load failure just leaves
-               the empty states showing rather than throwing up an error screen */
+            /* silent fail */
         } finally {
             loadingRef.current = false;
             setLoading(false);
@@ -101,10 +88,6 @@ export default function AdminDashboard() {
         }
     }, []);
 
-    // Initial load, background polling, and refresh-on-focus/tab-visible so
-    // an admin who's been sitting on this page sees new activity without
-    // needing to hit F5 — e.g. another admin importing users from AD, or a
-    // student submitting a proposal, shows up here automatically.
     useEffect(() => {
         load();
 
@@ -123,20 +106,12 @@ export default function AdminDashboard() {
         };
     }, [load]);
 
-    // Students with no supervisor assigned yet.
     const unassignedStudents = students.filter((s: any) => !s.supervisors || s.supervisors.length === 0);
 
-    // Anyone with an @mandela.ac.za address (and not flagged as a Student)
-    // can be picked, regardless of whether they already have a Supervisor
-    // record — that's what makes this "from the database" rather than the
-    // narrower, pre-registered system-supervisors list.
     const supervisorCandidates = allUsers
         .filter(isSupervisorEligible)
         .sort((a, b) => `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`));
 
-    // Map userID -> existing supervisorID, so we reuse a Supervisor row
-    // instead of creating a duplicate one for someone who's already in
-    // that table.
     const supervisorIdByUserId = new Map<number, number>(
         supervisors.map((sup: any) => [sup.userID ?? sup.user?.userID, sup.supervisorID])
     );
@@ -151,9 +126,6 @@ export default function AdminDashboard() {
         setSavingId(studentId);
         setAssignError(null);
 
-        // Optimistic update: reflect the assignment immediately in the UI
-        // instead of waiting on the round-trip + full reload, then reconcile
-        // with the server in the background. If the request fails, roll back.
         const previousStudents = students;
         setStudents(prev => prev.map((s: any) =>
             s.studentID === studentId
@@ -163,9 +135,6 @@ export default function AdminDashboard() {
         setAssigning(null);
 
         try {
-            // Reuse an existing Supervisor row for this user if there is one;
-            // otherwise create one first (this is what lets any @mandela.ac.za
-            // staff member become a supervisor, not just pre-registered ones).
             let supervisorId = supervisorIdByUserId.get(userId);
             if (!supervisorId) {
                 const created = await supervisorsApi.create({ userID: userId });
@@ -177,10 +146,9 @@ export default function AdminDashboard() {
                 supervisorID: supervisorId,
                 isPrimary: true,
             });
-            // Reconcile with the server in the background (silent — no loading flash)
             load({ silent: true });
         } catch (err: any) {
-            setStudents(previousStudents); // roll back the optimistic change
+            setStudents(previousStudents);
             const msg = err?.response?.data?.message || 'Failed to assign supervisor. Please try again.';
             setAssignError(msg);
         } finally {
@@ -214,6 +182,19 @@ export default function AdminDashboard() {
                 </div>
             </div>
 
+            {/* ===== QUICK ACTIONS ===== */}
+            <div className="card mb-2">
+                <div className="card-header"><h3 className="card-title">⚡ Quick Actions</h3></div>
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                    <Link to="/admin/ready-for-exam" className="btn btn-outline-primary">📋 Assign Evaluators</Link>
+                    <Link to="/admin/finalise" className="btn btn-outline-primary">✅ Finalise Evaluations</Link>
+                    <Link to="/admin/deadlines" className="btn btn-outline-primary">📅 Manage Deadlines</Link>
+                    <Link to="/admin/reports" className="btn btn-outline-primary">📊 Reports</Link>
+                    <Link to="/admin/import-ad" className="btn btn-outline-primary">📥 Import Users from AD</Link>
+                    <Link to="/admin/users" className="btn btn-outline-primary">✏️ Manage Roles</Link>
+                </div>
+            </div>
+
             {/* Stats grid */}
             <div className="stats-grid">
                 <div className="stat-card">
@@ -234,11 +215,11 @@ export default function AdminDashboard() {
                 </div>
                 <div className="stat-card">
                     <div className="stat-icon green">✅</div>
-                    <div><div className="stat-value">{stats.accepted}</div><div className="stat-label">Accepted</div></div>
+                    <div><div className="stat-value">{stats.accepted}</div><div className="stat-label">Approved</div></div>
                 </div>
                 <div className="stat-card">
                     <div className="stat-icon gold">⏳</div>
-                    <div><div className="stat-value">{stats.pending}</div><div className="stat-label">Under Review</div></div>
+                    <div><div className="stat-value">{stats.pending}</div><div className="stat-label">Under Evaluation</div></div>
                 </div>
             </div>
 
@@ -341,10 +322,10 @@ export default function AdminDashboard() {
                                         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                                             {p.student?.user?.firstName} {p.student?.user?.lastName}
                                         </span>
-                                        <span className={`badge badge-${p.status === 'Accepted' ? 'accepted' :
-                                            p.status === 'Rejected' ? 'rejected' :
-                                                p.status === 'UnderReview' ? 'underreview' :
-                                                    p.status === 'Submitted' ? 'submitted' : 'draft'
+                                        <span className={`badge badge-${p.status === 'APPROVED_GRADUATION' ? 'accepted' :
+                                            p.status === 'REJECTED' ? 'rejected' :
+                                                p.status === 'UNDER_EVALUATION' ? 'underreview' :
+                                                    p.status === 'READY_FOR_EXAMINATION' ? 'submitted' : 'draft'
                                             }`}>{p.status}</span>
                                         {fileUrl ? (
                                             <a
@@ -364,16 +345,6 @@ export default function AdminDashboard() {
                             );
                         })
                     }
-                </div>
-            </div>
-
-            {/* Quick links */}
-            <div className="card mt-2">
-                <div className="card-header"><h3 className="card-title">Quick Actions</h3></div>
-                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                    <Link to="/admin/import-ad" className="btn btn-outline-primary">📥 Import Users from AD</Link>
-                    <Link to="/admin/users" className="btn btn-outline-primary">✏️ Manage Roles</Link>
-                    <Link to="/admin/proposals" className="btn btn-outline-primary">📋 View All Proposals</Link>
                 </div>
             </div>
         </div>

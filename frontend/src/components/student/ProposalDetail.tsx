@@ -216,7 +216,7 @@ export default function ProposalDetail() {
         <div className="alert alert-warning mt-2">
           ⚠️ Your proposal was not accepted. Review the feedback above, revise your document, and resubmit.
           <div style={{ marginTop: 10 }}>
-            <Link to="/student/submit-proposal" className="btn btn-primary btn-sm">📤 Submit Revised Proposal</Link>
+            <Link to={`/student/submit-proposal?proposalId=${proposal.proposalID}`} className="btn btn-primary btn-sm">📤 Submit Revised Proposal</Link>
           </div>
         </div>
       )}

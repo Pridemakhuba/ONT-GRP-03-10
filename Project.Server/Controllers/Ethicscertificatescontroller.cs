@@ -87,7 +87,7 @@ public class EthicsCertificatesController : ControllerBase
         EthicsID = e.EthicsID,
         ProposalID = e.ProposalID,
         CertificatePath = e.CertificatePath,
-        CertificateNumber = e.CertificateNumber,
+        CertificateNumber = e.CertificateNumber ?? string.Empty,
         IssuedDate = e.IssuedDate,
         ExpiryDate = e.ExpiryDate,
         UploadedDate = e.UploadedDate

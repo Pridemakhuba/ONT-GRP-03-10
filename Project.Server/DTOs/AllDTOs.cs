@@ -12,7 +12,7 @@ namespace PRS.Backend.DTOs;
 public class ADLoginDto
 {
     [Required(ErrorMessage = "Username is required")]
-    public string Username { get; set; } = string.Empty; // Format: university\username or just username
+    public string Username { get; set; } = string.Empty;
 
     [Required(ErrorMessage = "Password is required")]
     public string Password { get; set; } = string.Empty;
@@ -126,7 +126,6 @@ public class CreateProposalDto
     [Required, MaxLength(500)] public string Title { get; set; } = string.Empty;
     [Required, MaxLength(4000)] public string Abstract { get; set; } = string.Empty;
     [MaxLength(500)] public string? Keywords { get; set; }
-    // Document is uploaded as IFormFile separately
 }
 
 public class UpdateProposalDto
@@ -134,6 +133,11 @@ public class UpdateProposalDto
     [MaxLength(500)] public string? Title { get; set; }
     [MaxLength(4000)] public string? Abstract { get; set; }
     [MaxLength(500)] public string? Keywords { get; set; }
+}
+
+public class RequestChangesDto
+{
+    [Required, MaxLength(2000)] public string Comments { get; set; } = string.Empty;
 }
 
 // ---- Evaluator Assignment DTOs ----
@@ -165,32 +169,43 @@ public class EvaluationRubricDto
 
     // Section 1: Research Quality (40%)
     public int ClarityScore { get; set; }
+    public string? ClarityComment { get; set; }
     public int LiteratureScore { get; set; }
+    public string? LiteratureComment { get; set; }
     public int MethodologyScore { get; set; }
+    public string? MethodologyComment { get; set; }
     public int FeasibilityScore { get; set; }
+    public string? FeasibilityComment { get; set; }
 
     // Section 2: Originality & Contribution (30%)
     public int NoveltyScore { get; set; }
+    public string? NoveltyComment { get; set; }
     public int ContributionScore { get; set; }
+    public string? ContributionComment { get; set; }
     public int InnovationScore { get; set; }
+    public string? InnovationComment { get; set; }
 
     // Section 3: Presentation & Structure (20%)
     public int WritingScore { get; set; }
+    public string? WritingComment { get; set; }
     public int LogicScore { get; set; }
+    public string? LogicComment { get; set; }
     public int CitationScore { get; set; }
+    public string? CitationComment { get; set; }
 
     // Section 4: Ethics Consideration (10%)
     public int EthicsScore { get; set; }
+    public string? EthicsComment { get; set; }
     public int RiskScore { get; set; }
+    public string? RiskComment { get; set; }
 
     public decimal TotalScore { get; set; }
     public string Recommendation { get; set; } = string.Empty;
     public string FeedbackNotes { get; set; } = string.Empty;
-    public string? ConfidentialNotes { get; set; } // Only included for supervisors
+    public string? ConfidentialNotes { get; set; }
     public string? EvaluationDocumentPath { get; set; }
     public DateTime SubmittedDate { get; set; }
 
-    // Computed section scores for display
     public RubricSectionScores? SectionScores { get; set; }
 }
 
@@ -200,35 +215,55 @@ public class SubmitEvaluationDto
 
     // Section 1: Research Quality
     [Required, Range(1, 5)] public int ClarityScore { get; set; }
+    [MaxLength(1000)] public string? ClarityComment { get; set; }
+
     [Required, Range(1, 5)] public int LiteratureScore { get; set; }
+    [MaxLength(1000)] public string? LiteratureComment { get; set; }
+
     [Required, Range(1, 5)] public int MethodologyScore { get; set; }
+    [MaxLength(1000)] public string? MethodologyComment { get; set; }
+
     [Required, Range(1, 5)] public int FeasibilityScore { get; set; }
+    [MaxLength(1000)] public string? FeasibilityComment { get; set; }
 
     // Section 2: Originality & Contribution
     [Required, Range(1, 5)] public int NoveltyScore { get; set; }
+    [MaxLength(1000)] public string? NoveltyComment { get; set; }
+
     [Required, Range(1, 5)] public int ContributionScore { get; set; }
+    [MaxLength(1000)] public string? ContributionComment { get; set; }
+
     [Required, Range(1, 5)] public int InnovationScore { get; set; }
+    [MaxLength(1000)] public string? InnovationComment { get; set; }
 
     // Section 3: Presentation & Structure
     [Required, Range(1, 5)] public int WritingScore { get; set; }
+    [MaxLength(1000)] public string? WritingComment { get; set; }
+
     [Required, Range(1, 5)] public int LogicScore { get; set; }
+    [MaxLength(1000)] public string? LogicComment { get; set; }
+
     [Required, Range(1, 5)] public int CitationScore { get; set; }
+    [MaxLength(1000)] public string? CitationComment { get; set; }
 
     // Section 4: Ethics Consideration
     [Required, Range(1, 5)] public int EthicsScore { get; set; }
+    [MaxLength(1000)] public string? EthicsComment { get; set; }
+
     [Required, Range(1, 5)] public int RiskScore { get; set; }
+    [MaxLength(1000)] public string? RiskComment { get; set; }
 
     [Required] public string Recommendation { get; set; } = string.Empty;
     [Required, MaxLength(2000)] public string FeedbackNotes { get; set; } = string.Empty;
     [MaxLength(2000)] public string? ConfidentialNotes { get; set; }
 }
 
-/// <summary>Section-level breakdown of rubric scores including weighted contributions</summary>
+/// <summary>Section-level breakdown of rubric scores</summary>
 public class RubricSectionScores
 {
-    public decimal Section1Raw { get; set; }       // e.g. 15/20
-    public decimal Section1Percentage { get; set; } // e.g. 75%
-    public decimal Section1Weighted { get; set; }  // e.g. 30/40
+    public decimal Section1Raw { get; set; }
+    public decimal Section1Percentage { get; set; }
+    public decimal Section1Weighted { get; set; }
 
     public decimal Section2Raw { get; set; }
     public decimal Section2Percentage { get; set; }
@@ -242,10 +277,10 @@ public class RubricSectionScores
     public decimal Section4Percentage { get; set; }
     public decimal Section4Weighted { get; set; }
 
-    public decimal TotalScore { get; set; } // 0-100
+    public decimal TotalScore { get; set; }
 }
 
-/// <summary>Aggregated results from all evaluators for a proposal</summary>
+/// <summary>Aggregated results from all evaluators</summary>
 public class ProposalRubricResultsDto
 {
     public int ProposalID { get; set; }
@@ -305,6 +340,7 @@ public class ImportUsersDto
     [Required] public List<string> ADUsernames { get; set; } = new();
     [Required] public string Role { get; set; } = "Student";
 }
+
 // ---- Report DTOs ----
 public class ProposalReportDto
 {
@@ -349,6 +385,7 @@ public class DepartmentSummaryDto
     public int ProposalCount { get; set; }
     public int AcceptedCount { get; set; }
 }
+
 public class StudentProgressDto
 {
     public string StudentNumber { get; set; } = "";
@@ -399,6 +436,34 @@ public class DeadlineStudentDto
 {
     public string StudentNumber { get; set; } = "";
     public string StudentName { get; set; } = "";
-    public string Status { get; set; } = ""; // OnTime, Late, NotSubmitted
+    public string Status { get; set; } = "";
     public DateTime? SubmissionDate { get; set; }
+}
+
+// ---- Progress Report DTOs ----
+
+public class ProgressReportDto
+{
+    public int ProgressReportID { get; set; }
+    public int StudentID { get; set; }
+    public int SupervisorID { get; set; }
+    public string? SupervisorName { get; set; }
+    public string? StudentName { get; set; }
+    public string? StudentNumber { get; set; }
+    public int AcademicYear { get; set; }
+    public string? ProgressStatus { get; set; }
+    public DateTime? AnticipatedCompletionDate { get; set; }
+    public string? StandingStatus { get; set; }
+    public string? Comments { get; set; }
+    public DateTime SubmittedDate { get; set; }
+}
+
+public class CreateProgressReportDto
+{
+    [Required] public int StudentID { get; set; }
+    [Required] public int AcademicYear { get; set; }
+    [Required, MaxLength(50)] public string ProgressStatus { get; set; } = string.Empty;
+    public DateTime? AnticipatedCompletionDate { get; set; }
+    [MaxLength(100)] public string? StandingStatus { get; set; }
+    [MaxLength(2000)] public string? Comments { get; set; }
 }

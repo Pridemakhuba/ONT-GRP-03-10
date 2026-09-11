@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import type { ChangeEvent, DragEvent, FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { proposalsApi } from '../../services/api';
 import { toast } from 'react-toastify';
 
@@ -17,10 +17,15 @@ interface CreateProposalResponseData {
 
 export default function SubmitProposal() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const proposalId = searchParams.get('proposalId'); // For resubmit scenario
+
   const [form, setForm] = useState<ProposalFormState>({ title: '', abstract: '', keywords: '' });
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [dragging, setDragging] = useState(false);
+
+  const isResubmit = !!proposalId;
 
   function handleFile(f: File | null | undefined) {
     if (!f) return;
@@ -33,39 +38,61 @@ export default function SubmitProposal() {
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!file) { toast.error('Please upload a proposal document'); return; }
     if (!form.title || !form.abstract) { toast.error('Title and abstract are required'); return; }
+
     setLoading(true);
     try {
       const fd = new FormData();
       fd.append('Title', form.title);
       fd.append('Abstract', form.abstract);
       fd.append('Keywords', form.keywords);
-      fd.append('document', file);
-      const res = await proposalsApi.create(fd);
 
-      // Check if we got a valid proposal ID back
-      const data = res?.data as CreateProposalResponseData | undefined;
-      const proposalId = data?.proposalID ?? data?.proposalId ?? (res as any)?.proposalID;
+      // For resubmit, document is optional; for new submission, it's required
+      if (file) {
+        fd.append('document', file);
+      } else if (!isResubmit) {
+        toast.error('Please upload a proposal document');
+        setLoading(false);
+        return;
+      }
 
-      if (proposalId) {
-        toast.success('Proposal submitted! Your supervisor has been notified.');
-        // Small delay to show success message before navigating
+      let res;
+      if (isResubmit) {
+        // Resubmit existing proposal
+        res = await proposalsApi.resubmit(proposalId, fd);
+        toast.success('Proposal resubmitted! Your supervisor has been notified.');
         setTimeout(() => {
           navigate(`/student/proposals/${proposalId}`);
         }, 800);
       } else {
-        toast.success('Proposal submitted successfully!');
-        navigate('/student/dashboard');
+        // Create new proposal
+        res = await proposalsApi.create(fd);
+
+        // Check if we got a valid proposal ID back
+        const data = res?.data as CreateProposalResponseData | undefined;
+        const newProposalId = data?.proposalID ?? data?.proposalId ?? (res as any)?.proposalID;
+
+        if (newProposalId) {
+          toast.success('Proposal submitted! Your supervisor has been notified.');
+          setTimeout(() => {
+            navigate(`/student/proposals/${newProposalId}`);
+          }, 800);
+        } else {
+          toast.success('Proposal submitted successfully!');
+          navigate('/student/dashboard');
+        }
       }
     } catch (err: any) {
       // If we got a 201 Created, the proposal was actually saved
       if (err.response?.status === 201) {
-        toast.success('Proposal submitted successfully!');
-        navigate('/student/dashboard');
+        toast.success(isResubmit ? 'Proposal resubmitted successfully!' : 'Proposal submitted successfully!');
+        navigate(isResubmit ? `/student/proposals/${proposalId}` : '/student/dashboard');
         return;
       }
-      toast.error(err.response?.data?.message || 'Submission failed. Please try again.');
+
+      const errorMsg = err.response?.data?.message || (isResubmit ? 'Resubmission failed' : 'Submission failed');
+      toast.error(errorMsg + '. Please try again.');
+      console.error('Error:', err);
     } finally {
       setLoading(false);
     }
@@ -74,13 +101,13 @@ export default function SubmitProposal() {
   return (
     <div>
       <div className="page-header">
-        <h1 className="page-title">Submit Research Proposal</h1>
-        <p className="page-subtitle">Fill in your proposal details and upload your document</p>
+        <h1 className="page-title">{isResubmit ? 'Resubmit Revised Proposal' : 'Submit Research Proposal'}</h1>
+        <p className="page-subtitle">{isResubmit ? 'Address the feedback and resubmit your revised proposal' : 'Fill in your proposal details and upload your document'}</p>
       </div>
 
       <div className="card" style={{ maxWidth: 800 }}>
         <div className="alert alert-info">
-          ℹ️ Your primary supervisor will be notified to sign off once submitted. Proposals must be in <strong>PDF or DOCX</strong> format (max 20MB).
+          ℹ️ {isResubmit ? 'Resubmit your revised proposal addressing the supervisor\'s feedback.' : 'Your primary supervisor will be notified to sign off once submitted.'} Proposals must be in <strong>PDF or DOCX</strong> format (max 20MB).
         </div>
 
         <form onSubmit={handleSubmit}>
@@ -120,7 +147,7 @@ export default function SubmitProposal() {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Proposal Document *</label>
+            <label className="form-label">Proposal Document {!isResubmit && '*'}</label>
             <div
               className={`file-upload-zone ${dragging ? 'dragging' : ''}`}
               onClick={() => document.getElementById('docUpload')?.click()}
@@ -130,7 +157,7 @@ export default function SubmitProposal() {
             >
               <div className="file-upload-icon">📁</div>
               <div className="file-upload-text">Click or drag and drop your document here</div>
-              <div className="file-upload-hint">PDF or DOCX · Max 20MB</div>
+              <div className="file-upload-hint">PDF or DOCX · Max 20MB {isResubmit && '· Optional (upload if updated)'}</div>
               <input
                 id="docUpload"
                 type="file"
@@ -153,7 +180,7 @@ export default function SubmitProposal() {
 
           <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
             <button type="submit" className="btn btn-primary btn-lg" disabled={loading}>
-              {loading ? 'Submitting...' : '📤 Submit Proposal'}
+              {loading ? (isResubmit ? 'Resubmitting...' : 'Submitting...') : (isResubmit ? '📤 Resubmit Proposal' : '📤 Submit Proposal')}
             </button>
             <button type="button" className="btn btn-ghost" onClick={() => navigate(-1)}>Cancel</button>
           </div>
