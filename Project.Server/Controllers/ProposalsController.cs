@@ -36,6 +36,7 @@ public class ProposalsController : ControllerBase
     {
         var query = _db.Proposals
             .Include(p => p.Student).ThenInclude(s => s.User)
+            .Include(p => p.Student).ThenInclude(s => s.StudentSupervisors).ThenInclude(ss => ss.Supervisor).ThenInclude(sv => sv.User)
             .Include(p => p.AssignedEvaluators).ThenInclude(pe => pe.Evaluator).ThenInclude(e => e.User)
             .AsQueryable();
 
@@ -59,6 +60,7 @@ public class ProposalsController : ControllerBase
         var proposals = await _db.Proposals
             .Where(p => p.StudentID == studentId)
             .Include(p => p.Student).ThenInclude(s => s.User)
+            .Include(p => p.Student).ThenInclude(s => s.StudentSupervisors).ThenInclude(ss => ss.Supervisor).ThenInclude(sv => sv.User)
             .Include(p => p.Evaluations)
             .OrderByDescending(p => p.CreatedDate)
             .ToListAsync();
@@ -84,12 +86,12 @@ public class ProposalsController : ControllerBase
         var proposals = await _db.Proposals
             .Where(p => p.Status == "READY_FOR_EXAMINATION")
             .Include(p => p.Student).ThenInclude(s => s.User)
+            .Include(p => p.Student).ThenInclude(s => s.StudentSupervisors).ThenInclude(ss => ss.Supervisor).ThenInclude(sv => sv.User)
             .OrderBy(p => p.SupervisorSignedDate)
             .ToListAsync();
         return Ok(proposals.Select(ToDto));
     }
 
-    /// <summary>POST /api/proposals — Submit a new proposal with document upload.</summary>
     [HttpPost]
     [Authorize(Roles = "Student")]
     [RequestSizeLimit(25_000_000)]
@@ -152,13 +154,13 @@ public class ProposalsController : ControllerBase
         {
             try
             {
-                await _email.SendSupervisorSignoffRequestAsync(
+                await _email.SendProposalSubmittedAsync(
                     primarySupervisor.Supervisor.User.Email,
                     primarySupervisor.Supervisor.User.FullName,
                     student.User?.FullName ?? "Student",
                     proposal.Title);
             }
-            catch { }
+            catch (Exception ex) { _logger.LogWarning(ex, "Email send failed (non-fatal)"); }
 
             _db.Notifications.Add(new Notification
             {
@@ -173,7 +175,6 @@ public class ProposalsController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = proposal.ProposalID }, ToDto(proposal));
     }
 
-    /// <summary>PUT /api/proposals/{id}/resubmit — Student revises and resubmits after supervisor requested changes</summary>
     [HttpPut("{id}/resubmit")]
     [Authorize(Roles = "Student")]
     [RequestSizeLimit(25_000_000)]
@@ -231,13 +232,13 @@ public class ProposalsController : ControllerBase
         {
             try
             {
-                await _email.SendSupervisorSignoffRequestAsync(
+                await _email.SendProposalResubmittedAsync(
                     primarySupervisor.Supervisor.User.Email,
                     primarySupervisor.Supervisor.User.FullName,
                     student.User?.FullName ?? "Student",
                     proposal.Title);
             }
-            catch { }
+            catch (Exception ex) { _logger.LogWarning(ex, "Email send failed (non-fatal)"); }
 
             _db.Notifications.Add(new Notification
             {
@@ -252,7 +253,6 @@ public class ProposalsController : ControllerBase
         return Ok(new { message = "Proposal resubmitted successfully", proposal = ToDto(proposal) });
     }
 
-    /// <summary>PUT /api/proposals/{id} — Update draft proposal details (metadata only)</summary>
     [HttpPut("{id}")]
     [Authorize(Roles = "Student")]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateProposalDto dto)
@@ -290,6 +290,16 @@ public class ProposalsController : ControllerBase
             Type = "SupervisorSignoff"
         });
 
+        try
+        {
+            await _email.SendProposalStatusUpdateAsync(
+                proposal.Student.User.Email,
+                proposal.Student.User.FullName,
+                proposal.Title,
+                "READY_FOR_EXAMINATION");
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "Email send failed (non-fatal)"); }
+
         var admins = await _db.Users.Where(u => u.Role == "Admin" && u.IsActive).ToListAsync();
         foreach (var admin in admins)
         {
@@ -299,6 +309,16 @@ public class ProposalsController : ControllerBase
                 Message = $"Proposal '{proposal.Title}' signed off by supervisor. Ready for evaluator assignment.",
                 Type = "ReadyForEvaluatorAssignment"
             });
+
+            try
+            {
+                await _email.SendAllEvaluationsCompleteAsync(
+                    admin.Email,
+                    admin.FullName,
+                    proposal.ProposalID,
+                    proposal.Title);
+            }
+            catch (Exception ex) { _logger.LogWarning(ex, "Email send failed (non-fatal)"); }
         }
         await _db.SaveChangesAsync();
         return Ok(new { message = "Proposal signed off successfully" });
@@ -308,7 +328,9 @@ public class ProposalsController : ControllerBase
     [Authorize(Roles = "Supervisor")]
     public async Task<IActionResult> RequestChanges(int id, [FromBody] RequestChangesDto dto)
     {
-        var proposal = await _db.Proposals.Include(p => p.Student).FirstOrDefaultAsync(p => p.ProposalID == id);
+        var proposal = await _db.Proposals
+            .Include(p => p.Student).ThenInclude(s => s.User)
+            .FirstOrDefaultAsync(p => p.ProposalID == id);
         if (proposal == null) return NotFound();
 
         proposal.Status = "REVISION_REQUIRED";
@@ -321,6 +343,16 @@ public class ProposalsController : ControllerBase
             Type = "RevisionRequired"
         });
         await _db.SaveChangesAsync();
+
+        try
+        {
+            await _email.SendRevisionRequiredAsync(
+                proposal.Student.User.Email,
+                proposal.Student.User.FullName,
+                proposal.Title,
+                dto.Comments);
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "Email send failed (non-fatal)"); }
 
         return Ok(new { message = "Changes requested" });
     }
@@ -362,8 +394,14 @@ public class ProposalsController : ControllerBase
                 var evaluator = await _db.Supervisors.Include(s => s.User).FirstOrDefaultAsync(s => s.SupervisorID == evaluatorId);
                 if (evaluator != null)
                 {
-                    try { await _email.SendEvaluationAssignedAsync(evaluator.User.Email, evaluator.User.FullName, proposal.Title); }
-                    catch { }
+                    try
+                    {
+                        await _email.SendEvaluatorAssignedAsync(
+                            evaluator.User.Email,
+                            evaluator.User.FullName,
+                            proposal.Title);
+                    }
+                    catch (Exception ex) { _logger.LogWarning(ex, "Email send failed (non-fatal)"); }
 
                     _db.Notifications.Add(new Notification
                     {
@@ -380,7 +418,6 @@ public class ProposalsController : ControllerBase
         return Ok(new { message = "Evaluators assigned successfully" });
     }
 
-    /// <summary>PUT /api/proposals/{id}/finalise — Auto-decides based on evaluation scores</summary>
     [HttpPut("{id}/finalise")]
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> Finalise(int id)
@@ -397,7 +434,6 @@ public class ProposalsController : ControllerBase
         if (evaluations.Count < 2)
             return BadRequest(new { message = "Both evaluators must submit before finalising" });
 
-        // AUTO-DECISION LOGIC
         var avgScore = evaluations.Average(e => e.TotalScore);
         var recommendations = evaluations.Select(e => e.Recommendation?.ToLower() ?? "").ToList();
 
@@ -426,7 +462,6 @@ public class ProposalsController : ControllerBase
         proposal.Status = finalStatus;
         await _db.SaveChangesAsync();
 
-        // Notify Student
         _db.Notifications.Add(new Notification
         {
             UserID = proposal.Student.UserID,
@@ -434,7 +469,18 @@ public class ProposalsController : ControllerBase
             Type = "FinalResult"
         });
 
-        // Notify Primary Supervisor
+        try
+        {
+            await _email.SendFinalResultAsync(
+                proposal.Student.User.Email,
+                proposal.Student.User.FullName,
+                proposal.Title,
+                finalStatus,
+                (decimal)Math.Round(avgScore, 1),
+                resultMessage);
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "Email send failed (non-fatal)"); }
+
         var supervisorAssignment = await _db.StudentSupervisors
             .Where(ss => ss.StudentID == proposal.StudentID && ss.IsPrimary)
             .Include(ss => ss.Supervisor).ThenInclude(s => s.User)
@@ -448,9 +494,20 @@ public class ProposalsController : ControllerBase
                 Message = $"Final result for '{proposal.Title}': {finalStatus}. Avg score: {avgScore:F1}%.",
                 Type = "FinalResult"
             });
+
+            try
+            {
+                await _email.SendFinalResultAsync(
+                    supervisorAssignment.Supervisor.User.Email,
+                    supervisorAssignment.Supervisor.User.FullName,
+                    proposal.Title,
+                    finalStatus,
+                    (decimal)Math.Round(avgScore, 1),
+                    $"Student {proposal.Student.User.FullName} has been notified.");
+            }
+            catch (Exception ex) { _logger.LogWarning(ex, "Email send failed (non-fatal)"); }
         }
 
-        // Notify Evaluators
         var evaluatorIds = await _db.ProposalEvaluators
             .Where(pe => pe.ProposalID == id)
             .Select(pe => pe.EvaluatorID)
@@ -468,6 +525,18 @@ public class ProposalsController : ControllerBase
                     Message = $"Proposal '{proposal.Title}' finalised: {finalStatus}.",
                     Type = "FinalResult"
                 });
+
+                try
+                {
+                    await _email.SendFinalResultAsync(
+                        evaluator.User.Email,
+                        evaluator.User.FullName,
+                        proposal.Title,
+                        finalStatus,
+                        (decimal)Math.Round(avgScore, 1),
+                        "Thank you for your evaluation.");
+                }
+                catch (Exception ex) { _logger.LogWarning(ex, "Email send failed (non-fatal)"); }
             }
         }
 
@@ -486,6 +555,7 @@ public class ProposalsController : ControllerBase
 
     private async Task<Proposal?> LoadProposal(int id) => await _db.Proposals
         .Include(p => p.Student).ThenInclude(s => s.User)
+        .Include(p => p.Student).ThenInclude(s => s.StudentSupervisors).ThenInclude(ss => ss.Supervisor).ThenInclude(sv => sv.User)
         .Include(p => p.Evaluations).ThenInclude(e => e.Evaluator).ThenInclude(sv => sv.User)
         .Include(p => p.AssignedEvaluators).ThenInclude(pe => pe.Evaluator).ThenInclude(sv => sv.User)
         .Include(p => p.EthicsCertificates)
@@ -511,7 +581,27 @@ public class ProposalsController : ControllerBase
             Program = p.Student.Program,
             User = p.Student.User != null
                 ? new UserDto { UserID = p.Student.User.UserID, FirstName = p.Student.User.FirstName, LastName = p.Student.User.LastName, Email = p.Student.User.Email }
-                : new UserDto { UserID = p.Student.UserID, FirstName = "Unknown", LastName = "User", Email = "" }
+                : new UserDto { UserID = p.Student.UserID, FirstName = "Unknown", LastName = "User", Email = "" },
+
+            // Include the student's supervisors so the frontend can grey them out
+            Supervisors = p.Student.StudentSupervisors?
+                .Select(ss => new SupervisorDto
+                {
+                    SupervisorID = ss.SupervisorID,
+                    UserID = ss.Supervisor != null ? ss.Supervisor.UserID : 0,
+                    Expertise = ss.Supervisor != null ? ss.Supervisor.Expertise : null,
+                    IsPrimary = ss.IsPrimary,
+                    User = ss.Supervisor != null && ss.Supervisor.User != null
+                        ? new UserDto
+                        {
+                            UserID = ss.Supervisor.User.UserID,
+                            FirstName = ss.Supervisor.User.FirstName,
+                            LastName = ss.Supervisor.User.LastName,
+                            Email = ss.Supervisor.User.Email
+                        }
+                        : new UserDto { FirstName = "", LastName = "", Email = "" }
+                })
+                .ToList() ?? new()
         } : null,
         AssignedEvaluators = p.AssignedEvaluators?.Select(pe => new EvaluatorAssignmentDto
         {

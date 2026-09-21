@@ -17,13 +17,20 @@ public class EvaluationsController : ControllerBase
     private readonly ApplicationDbContext _db;
     private readonly RubricCalculatorService _rubric;
     private readonly IFileUploadService _files;
+    private readonly IEmailService _email;
     private readonly ILogger<EvaluationsController> _logger;
 
-    public EvaluationsController(ApplicationDbContext db, RubricCalculatorService rubric, IFileUploadService files, ILogger<EvaluationsController> logger)
+    public EvaluationsController(
+        ApplicationDbContext db,
+        RubricCalculatorService rubric,
+        IFileUploadService files,
+        IEmailService email,
+        ILogger<EvaluationsController> logger)
     {
         _db = db;
         _rubric = rubric;
         _files = files;
+        _email = email;
         _logger = logger;
     }
 
@@ -49,7 +56,7 @@ public class EvaluationsController : ControllerBase
         return Ok(rubrics);
     }
 
-    /// <summary>GET /api/evaluations/proposal/{proposalId}</summary>
+    /// <summary>GET /api/evaluations/proposal/{proposalId} — full evaluation details including per-criterion comments</summary>
     [HttpGet("proposal/{proposalId}")]
     public async Task<IActionResult> GetByProposal(int proposalId)
     {
@@ -63,14 +70,48 @@ public class EvaluationsController : ControllerBase
                 totalScore = r.TotalScore,
                 recommendation = r.Recommendation ?? "",
                 feedbackNotes = r.FeedbackNotes ?? "",
-                submittedDate = r.SubmittedDate
+                submittedDate = r.SubmittedDate,
+
+                // Section 1 - scores + comments
+                clarityScore = r.ClarityScore,
+                clarityComment = r.ClarityComment,
+                literatureScore = r.LiteratureScore,
+                literatureComment = r.LiteratureComment,
+                methodologyScore = r.MethodologyScore,
+                methodologyComment = r.MethodologyComment,
+                feasibilityScore = r.FeasibilityScore,
+                feasibilityComment = r.FeasibilityComment,
+
+                // Section 2
+                noveltyScore = r.NoveltyScore,
+                noveltyComment = r.NoveltyComment,
+                contributionScore = r.ContributionScore,
+                contributionComment = r.ContributionComment,
+                innovationScore = r.InnovationScore,
+                innovationComment = r.InnovationComment,
+
+                // Section 3
+                writingScore = r.WritingScore,
+                writingComment = r.WritingComment,
+                logicScore = r.LogicScore,
+                logicComment = r.LogicComment,
+                citationScore = r.CitationScore,
+                citationComment = r.CitationComment,
+
+                // Section 4
+                ethicsScore = r.EthicsScore,
+                ethicsComment = r.EthicsComment,
+                riskScore = r.RiskScore,
+                riskComment = r.RiskComment
+                // NOTE: ConfidentialNotes is intentionally NOT returned here
+                // so students and other evaluators cannot see supervisor-only notes.
             })
             .ToListAsync();
 
         return Ok(rubrics);
     }
 
-    /// <summary>GET /api/evaluations/proposal/{proposalId}/results</summary>
+    /// <summary>GET /api/evaluations/proposal/{proposalId}/results — aggregated results with per-criterion detail</summary>
     [HttpGet("proposal/{proposalId}/results")]
     public async Task<IActionResult> GetResults(int proposalId)
     {
@@ -89,12 +130,47 @@ public class EvaluationsController : ControllerBase
             evaluatorCount = rubrics.Count,
             averageScore = Math.Round(avgScore, 1),
             recommendation = rubrics.FirstOrDefault()?.Recommendation ?? "Pending",
+            overallDecision = rubrics.FirstOrDefault()?.Recommendation ?? "Pending",
             evaluations = rubrics.Select(r => new
             {
                 rubricID = r.RubricID,
                 totalScore = r.TotalScore,
                 recommendation = r.Recommendation,
-                feedbackNotes = r.FeedbackNotes
+                feedbackNotes = r.FeedbackNotes,
+
+                // Section 1 scores + comments
+                clarityScore = r.ClarityScore,
+                clarityComment = r.ClarityComment,
+                literatureScore = r.LiteratureScore,
+                literatureComment = r.LiteratureComment,
+                methodologyScore = r.MethodologyScore,
+                methodologyComment = r.MethodologyComment,
+                feasibilityScore = r.FeasibilityScore,
+                feasibilityComment = r.FeasibilityComment,
+
+                // Section 2
+                noveltyScore = r.NoveltyScore,
+                noveltyComment = r.NoveltyComment,
+                contributionScore = r.ContributionScore,
+                contributionComment = r.ContributionComment,
+                innovationScore = r.InnovationScore,
+                innovationComment = r.InnovationComment,
+
+                // Section 3
+                writingScore = r.WritingScore,
+                writingComment = r.WritingComment,
+                logicScore = r.LogicScore,
+                logicComment = r.LogicComment,
+                citationScore = r.CitationScore,
+                citationComment = r.CitationComment,
+
+                // Section 4
+                ethicsScore = r.EthicsScore,
+                ethicsComment = r.EthicsComment,
+                riskScore = r.RiskScore,
+                riskComment = r.RiskComment
+
+                // ConfidentialNotes intentionally NOT returned
             }).ToList()
         });
     }
@@ -168,12 +244,16 @@ public class EvaluationsController : ControllerBase
 
         _db.EvaluationRubrics.Add(rubric);
 
-        // If both evaluators submitted, notify Admin
+        // If both evaluators submitted, notify Admin (in-app + email)
         var totalAssigned = await _db.ProposalEvaluators.CountAsync(pe => pe.ProposalID == dto.ProposalID);
         var completedCount = await _db.EvaluationRubrics.CountAsync(r => r.ProposalID == dto.ProposalID) + 1;
 
         if (completedCount >= totalAssigned)
         {
+            var proposal = await _db.Proposals
+                .Include(p => p.Student).ThenInclude(s => s.User)
+                .FirstOrDefaultAsync(p => p.ProposalID == dto.ProposalID);
+
             var admins = await _db.Users.Where(u => u.Role == "Admin" && u.IsActive).ToListAsync();
             foreach (var admin in admins)
             {
@@ -183,6 +263,22 @@ public class EvaluationsController : ControllerBase
                     Message = $"Both evaluations submitted for proposal #{dto.ProposalID}. Ready to finalise.",
                     Type = "AllEvaluationsComplete"
                 });
+
+                if (proposal != null)
+                {
+                    try
+                    {
+                        await _email.SendAllEvaluationsCompleteAsync(
+                            admin.Email,
+                            admin.FullName,
+                            dto.ProposalID,
+                            proposal.Title);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Email send failed (non-fatal)");
+                    }
+                }
             }
         }
 
